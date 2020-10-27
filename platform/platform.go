@@ -3,7 +3,7 @@ package platform
 import (
 	"net/url"
 
-	"github.com/alcounit/selenosis/pkg/selenium"
+	"github.com/alcounit/selenosis/selenium"
 	apiv1 "k8s.io/api/core/v1"
 )
 

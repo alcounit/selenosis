@@ -9,7 +9,7 @@ import (
 
 	"github.com/alcounit/selenosis"
 	"github.com/alcounit/selenosis/config"
-	"github.com/alcounit/selenosis/pkg/platform"
+	"github.com/alcounit/selenosis/platform"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"

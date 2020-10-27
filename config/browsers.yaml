@@ -1,6 +1,9 @@
 ---
     chrome:
         path : /
+        labels:
+          environment: production
+          app: nginx
         spec:
           resources:
             requests:
@@ -27,9 +30,6 @@
             value: 'true'    
           nodeSelector:
             accelerator: nvidia-tesla-p100
-          labels:
-            environment: production
-            app: nginx
         versions: 
           '68.0':
             image: selenoid/vnc:chrome_68.0

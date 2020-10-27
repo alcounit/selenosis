@@ -1,6 +1,14 @@
 {
     "chrome": {
       "path": "/",
+      "labels": {
+        "environment": "production",
+        "app": "nginx"
+      },
+      "annotations": {
+        "key1" : "value1",
+        "key2" : "value2"
+      },
       "spec": {
         "resources": {
           "requests": {
@@ -44,10 +52,6 @@
         ],
         "nodeSelector": {
           "accelerator": "nvidia-tesla-p100"
-        },
-        "labels": {
-          "environment": "production",
-          "app": "nginx"
         }
       },
       "versions": {

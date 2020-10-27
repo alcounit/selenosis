@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alcounit/selenosis/pkg/platform"
-	"github.com/alcounit/selenosis/pkg/selenium"
-	"github.com/alcounit/selenosis/pkg/tools"
+	"github.com/alcounit/selenosis/platform"
+	"github.com/alcounit/selenosis/selenium"
+	"github.com/alcounit/selenosis/tools"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/imdario/mergo"

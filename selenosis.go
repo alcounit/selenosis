@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/alcounit/selenosis/config"
-	"github.com/alcounit/selenosis/pkg/platform"
+	"github.com/alcounit/selenosis/platform"
 	log "github.com/sirupsen/logrus"
 )
 
