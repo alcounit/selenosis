@@ -7,6 +7,12 @@ import (
 	apiv1 "k8s.io/api/core/v1"
 )
 
+//Meta describes standart metadata
+type Meta struct {
+	Labels      map[string]string `yaml:"labels,omitempty" json:"labels,omitempty"`
+	Annotations map[string]string `yaml:"annotations,omitempty" json:"annotations,omitempty"`
+}
+
 //Spec describes specification for Service
 type Spec struct {
 	Resources    apiv1.ResourceRequirements `yaml:"resources,omitempty" json:"resources,omitempty"`
@@ -19,11 +25,10 @@ type Spec struct {
 
 //BrowserSpec describes settings for Service
 type BrowserSpec struct {
-	Image       string            `yaml:"image" json:"image"`
-	Path        string            `yaml:"path" json:"path"`
-	Labels      map[string]string `yaml:"labels,omitempty" json:"labels,omitempty"`
-	Annotations map[string]string `yaml:"annotations,omitempty" json:"annotations,omitempty"`
-	Spec        Spec              `yaml:"spec" json:"spec"`
+	Image string `yaml:"image" json:"image"`
+	Path  string `yaml:"path" json:"path"`
+	Meta  Meta   `yaml:"meta" json:"meta"`
+	Spec  Spec   `yaml:"spec" json:"spec"`
 }
 
 //ServiceSpec describes data requred for creating service

@@ -49,11 +49,6 @@ func (s *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 		"request_id":     uuid.New(),
 	})
 	logger.WithField("time_elapsed", tools.TimeElapsed(start)).Info("session")
-	if r.Method != http.MethodPost {
-		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Error("Failed to validate request method")
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {

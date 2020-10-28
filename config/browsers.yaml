@@ -1,7 +1,8 @@
 ---
     chrome:
         path : /
-        labels:
+        meta: 
+          labels:
           environment: production
           app: nginx
         spec:
@@ -33,7 +34,8 @@
         versions: 
           '68.0':
             image: selenoid/vnc:chrome_68.0
-            labels:
+            meta:
+              labels:
               environment: qa
             spec:
               resources:

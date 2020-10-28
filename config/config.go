@@ -15,9 +15,8 @@ import (
 //Layout ...
 type Layout struct {
 	DefaultSpec platform.Spec                    `yaml:"spec" json:"spec"`
+	Meta        platform.Meta                    `yaml:"meta" json:"meta"`
 	Path        string                           `yaml:"path" json:"path"`
-	Labels      map[string]string                `yaml:"labels,omitempty" json:"labels,omitempty"`
-	Annotations map[string]string                `yaml:"annotations,omitempty" json:"annotations,omitempty"`
 	Versions    map[string]*platform.BrowserSpec `yaml:"versions" json:"versions"`
 }
 
@@ -49,13 +48,9 @@ func NewBrowsersConfig(cfg string) (*BrowsersConfig, error) {
 		spec := layout.DefaultSpec
 		for _, container := range layout.Versions {
 			container.Path = layout.Path
+			container.Meta.Annotations = merge(container.Meta.Annotations, layout.Meta.Annotations)
+			container.Meta.Labels = merge(container.Meta.Labels, layout.Meta.Labels)
 
-			mergeMaps(container.Annotations, layout.Annotations)
-			container.Annotations = layout.Annotations
-			
-			mergeMaps(container.Labels, layout.Labels)
-			container.Labels = layout.Labels
-			
 			if err := mergo.Merge(&container.Spec, spec); err != nil {
 				return nil, fmt.Errorf("merge error %v", err)
 			}
@@ -84,8 +79,9 @@ func (cfg *BrowsersConfig) Find(name, version string) (*platform.BrowserSpec, er
 	return v, nil
 }
 
-func mergeMaps(from, to map[string]string) {
+func merge(from, to map[string]string) map[string]string {
 	for k, v := range from {
 		to[k] = v
 	}
+	return to
 }

@@ -77,13 +77,15 @@ Each browser can have default <b>spec/annotations/labels</b>, they will merged t
 {
   "chrome": {
     "path": "/",
-    "labels": {
-      "environment": "aqa",
-      "app": "myCoolApp"
-    },
-    "annotations": {
-      "build": "dev-v1.11.2",
-      "builder": "jenkins"
+    "meta": {
+      "labels": {
+        "environment": "aqa",
+        "app": "myCoolApp"
+      },
+      "annotations": {
+        "build": "dev-v1.11.2",
+        "builder": "jenkins"
+      }
     },
     "spec": {
       "resources": {
@@ -143,12 +145,13 @@ Each browser can have default <b>spec/annotations/labels</b>, they will merged t
 ---
 chrome:
   path: "/"
-  labels:
-    environment: aqa
-    app: myCoolApp
-  annotations:
-    build: dev-v1.11.2
-    builder: jenkins
+  meta:
+    labels:
+      environment: aqa
+      app: myCoolApp
+    annotations:
+      build: dev-v1.11.2
+      builder: jenkins
   spec:
     resources:
       requests:
@@ -184,13 +187,15 @@ You can override default browser <b>spec/annotation/labels</b> by providing indi
 {
   "chrome": {
     "path": "/",
-    "labels": {
-      "environment": "aqa",
-      "app": "myCoolApp"
-    },
-    "annotations": {
-      "build": "dev-v1.11.2",
-      "builder": "jenkins"
+    "meta": {
+      "labels": {
+        "environment": "aqa",
+        "app": "myCoolApp"
+      },
+      "annotations": {
+        "build": "dev-v1.11.2",
+        "builder": "jenkins"
+      }
     },
     "spec": {
       "resources": {
@@ -238,16 +243,16 @@ You can override default browser <b>spec/annotation/labels</b> by providing indi
       "85.0": {
         "image": "selenoid/vnc:chrome:85.0",
         "spec": {
-            "resources": {
-                "requests": {
-                "memory": "750Mi",
-                "cpu": "0.5"
-                },
-                "limits": {
-                "memory": "1500Gi",
-                "cpu": "1"
-                }
+          "resources": {
+            "requests": {
+              "memory": "750Mi",
+              "cpu": "0.5"
+            },
+            "limits": {
+              "memory": "1500Gi",
+              "cpu": "1"
             }
+          }
         }
       },
       "86.0": {
@@ -262,9 +267,11 @@ You can override default browser <b>spec/annotation/labels</b> by providing indi
             }
           ]
         },
-        "labels": {
-          "environment": "dev",
-          "app": "veryCoolApp"
+        "meta": {
+          "labels": {
+            "environment": "dev",
+            "app": "veryCoolApp"
+          }
         }
       }
     }
@@ -275,12 +282,13 @@ You can override default browser <b>spec/annotation/labels</b> by providing indi
 ---
 chrome:
   path: "/"
-  labels:
-    environment: aqa
-    app: myCoolApp
-  annotations:
-    build: dev-v1.11.2
-    builder: jenkins
+  meta:
+    labels:
+      environment: aqa
+      app: myCoolApp
+    annotations:
+      build: dev-v1.11.2
+      builder: jenkins
   spec:
     resources:
       requests:
@@ -323,9 +331,10 @@ chrome:
         - ip: 127.0.0.1
           hostnames:
           - bla-bla.com
-      labels:
-        environment: dev
-        app: veryCoolApp
+      meta:
+        labels:
+          environment: dev
+          app: veryCoolApp
 
 ```
 ### Instalation

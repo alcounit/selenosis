@@ -10,6 +10,7 @@ require (
 	github.com/spf13/cobra v1.0.0
 	github.com/stretchr/testify v1.6.1
 	golang.org/x/net v0.0.0-20200930145003-4acb6c075d10
+	gotest.tools v2.2.0+incompatible
 	k8s.io/api v0.18.1
 	k8s.io/apimachinery v0.19.2
 	k8s.io/client-go v0.18.1

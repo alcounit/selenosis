@@ -162,19 +162,19 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		labels[defaults.timeZone] = layout.RequestedCapabilities.TimeZone
 	}
 
-	if layout.Template.Labels == nil {
-		layout.Template.Labels = make(map[string]string)
+	if layout.Template.Meta.Labels == nil {
+		layout.Template.Meta.Labels = make(map[string]string)
 	}
 
 	for k, v := range labels {
-		layout.Template.Labels[k] = v
+		layout.Template.Meta.Labels[k] = v
 	}
 
 	pod := &apiv1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        layout.SessionID,
-			Labels:      layout.Template.Labels,
-			Annotations: layout.Template.Annotations,
+			Labels:      layout.Template.Meta.Labels,
+			Annotations: layout.Template.Meta.Annotations,
 		},
 		Spec: apiv1.PodSpec{
 			Hostname:  layout.SessionID,

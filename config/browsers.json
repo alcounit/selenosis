@@ -1,13 +1,15 @@
 {
     "chrome": {
       "path": "/",
-      "labels": {
-        "environment": "production",
-        "app": "nginx"
-      },
-      "annotations": {
-        "key1" : "value1",
-        "key2" : "value2"
+      "meta": {
+        "labels": {
+          "environment": "production",
+          "app": "nginx"
+        },
+        "annotations": {
+          "key1" : "value1",
+          "key2" : "value2"
+        }
       },
       "spec": {
         "resources": {
@@ -57,8 +59,10 @@
       "versions": {
         "68.0": {
           "image": "selenoid/vnc:chrome_68.0",
-          "labels": {
-            "environment": "qa"
+          "meta": {
+            "labels": {
+              "environment": "qa"
+            }
           },
           "spec": {
             "resources": {

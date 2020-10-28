@@ -190,6 +190,25 @@ func TestConfigSearch(t *testing.T) {
 
 }
 
+func TestMapMerge(t *testing.T) {
+	tests := map[string]struct {
+		from     map[string]string
+		to       map[string]string
+		expected map[string]string
+	}{
+		"Verify map merge": {
+			from:     map[string]string{"key1": "value1", "key2": "value2", "key3": "value3"},
+			to:       map[string]string{"key3": "value11", "key4": "value4"},
+			expected: map[string]string{"key1": "value1", "key2": "value2", "key3": "value3", "key4": "value4"},
+		},
+	}
+	for name, test := range tests {
+		t.Logf("TC: %s", name)
+		result := merge(test.from, test.to)
+		assert.Equal(t, test.expected, result)
+	}
+}
+
 func configfile(data string, config string) string {
 	tmp, err := ioutil.TempFile("", config)
 	if err != nil {
