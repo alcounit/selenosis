@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"os/signal"
@@ -29,6 +30,7 @@ func command() *cobra.Command {
 		browserWaitTimeout  time.Duration
 		sessionWaitTimeout  time.Duration
 		sessionIddleTimeout time.Duration
+		shutdownTimeout     time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -95,6 +97,13 @@ func command() *cobra.Command {
 			case <-stop:
 				logger.Warn("stopping selenosis")
 			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			defer cancel()
+
+			if err := srv.Shutdown(ctx); err != nil {
+				logger.Fatalf("faled to stop", err)
+			}
 		},
 	}
 
@@ -107,6 +116,7 @@ func command() *cobra.Command {
 	cmd.Flags().DurationVar(&sessionWaitTimeout, "session-wait-timeout", 60*time.Second, "time in seconds that a session will be ready")
 	cmd.Flags().DurationVar(&sessionIddleTimeout, "session-iddle-timeout", 5*time.Minute, "time in seconds that a session will iddle")
 	cmd.Flags().IntVar(&sessionRetryCount, "session-retry-count", 3, "session retry count")
+	cmd.Flags().DurationVar(&shutdownTimeout, "graceful-shutdown-timeout", 300*time.Second, "time in seconds  gracefull shutdown timeout")
 	cmd.Flags().SortFlags = false
 
 	return cmd
