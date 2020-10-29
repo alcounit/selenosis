@@ -209,7 +209,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 					},
 					Ports: getSidecarPorts(cl.svcPort),
 					Command: []string{
-						"/usr/bin/seleniferous", "--listhen-port", cl.svcPort.StrVal, "--proxy-default-path", path.Join(layout.Template.Path, "session"), "--iddle-timeout", cl.iddleTimeout.String(), "--namespace", cl.ns,
+						"/seleniferous", "--listhen-port", cl.svcPort.StrVal, "--proxy-default-path", path.Join(layout.Template.Path, "session"), "--iddle-timeout", cl.iddleTimeout.String(), "--namespace", cl.ns,
 					},
 				},
 			},

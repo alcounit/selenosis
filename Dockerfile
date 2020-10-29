@@ -18,6 +18,6 @@ RUN cd cmd/selenosis && \
 
 FROM scratch
 
-COPY --from=builder /go/bin/* /usr/bin
+COPY --from=builder /go/bin/selenosis /
 
-ENTRYPOINT ["/usr/bin/selenosis"]
+ENTRYPOINT ["/selenosis"]

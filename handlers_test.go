@@ -20,15 +20,7 @@ import (
 )
 
 var (
-	srv  *httptest.Server
-	conf = Configuration{
-		SelenosisHost:       "hostname",
-		ServiceName:         "selenosis",
-		SidecarPort:         "4445",
-		BrowserWaitTimeout:  300 * time.Millisecond,
-		SessionIddleTimeout: 600 * time.Millisecond,
-		SessionRetryCount:   2,
-	}
+	srv *httptest.Server
 )
 
 const (
@@ -76,8 +68,7 @@ func TestNewSessionRequestErrors(t *testing.T) {
 	for name, test := range tests {
 		t.Logf("TC: %s", name)
 
-		browser, _ := config.NewBrowsersConfig("config/browsers.yaml")
-		app := initApp(nil, browser, conf)
+		app := initApp(nil)
 		req, err := http.NewRequest(http.MethodPost, session, test.body)
 
 		if err != nil {
@@ -108,7 +99,6 @@ func TestNewSessionOnPlatformError(t *testing.T) {
 	tests := map[string]struct {
 		reqBody               io.Reader
 		platformFailure       bool
-		platformResp          *platform.Service
 		platformFailureReason error
 		respCode              int
 		respBody              string
@@ -128,10 +118,8 @@ func TestNewSessionOnPlatformError(t *testing.T) {
 		client := &PlatformMock{
 			shouldFail:    test.platformFailure,
 			failureReason: test.platformFailureReason,
-			service:       test.platformResp,
 		}
-		browser, _ := config.NewBrowsersConfig("config/browsers.yaml")
-		app := initApp(client, browser, conf)
+		app := initApp(client)
 		req, err := http.NewRequest(http.MethodPost, session, test.reqBody)
 
 		if err != nil {
@@ -190,8 +178,7 @@ func TestNewSessionOnBrowserNetworkError(t *testing.T) {
 				},
 			},
 		}
-		browser, _ := config.NewBrowsersConfig("config/browsers.yaml")
-		app := initApp(client, browser, conf)
+		app := initApp(client)
 		req, err := http.NewRequest(http.MethodPost, session, test.reqBody)
 
 		if err != nil {
@@ -255,13 +242,11 @@ func TestNewSessionOnCancelRequest(t *testing.T) {
 				URL:        u,
 			},
 		}
-
-		browser, _ := config.NewBrowsersConfig("config/browsers.yaml")
-		app := initApp(platform, browser, conf)
-
+		app := initApp(platform)
 		ctx := context.Background()
 		ctx, cancel := context.WithCancel(ctx)
 		cancel()
+
 		resp, err := http.NewRequestWithContext(ctx, http.MethodPost, session, test.reqBody)
 		if err != nil {
 			t.Fatal(err)
@@ -326,8 +311,7 @@ func TestNewSessionOnRequestTimeout(t *testing.T) {
 			},
 		}
 
-		browser, _ := config.NewBrowsersConfig("config/browsers.yaml")
-		app := initApp(platform, browser, conf)
+		app := initApp(platform)
 
 		ctx := context.Background()
 		resp, err := http.NewRequestWithContext(ctx, http.MethodPost, session, test.reqBody)
@@ -393,8 +377,7 @@ func TestNewSessionResponseCodeError(t *testing.T) {
 				URL:        u,
 			},
 		}
-		browser, _ := config.NewBrowsersConfig("config/browsers.yaml")
-		app := initApp(platform, browser, conf)
+		app := initApp(platform)
 		req, err := http.NewRequest(http.MethodPost, session, test.reqBody)
 		if err != nil {
 			t.Fatal(err)
@@ -458,8 +441,7 @@ func TestNewSessionResponseBodyError(t *testing.T) {
 				URL:        u,
 			},
 		}
-		browser, _ := config.NewBrowsersConfig("config/browsers.yaml")
-		app := initApp(platform, browser, conf)
+		app := initApp(platform)
 		req, err := http.NewRequest(http.MethodPost, session, test.reqBody)
 		if err != nil {
 			t.Fatal(err)
@@ -524,8 +506,7 @@ func TestNewSessionCreated(t *testing.T) {
 				URL:        u,
 			},
 		}
-		browser, _ := config.NewBrowsersConfig("config/browsers.yaml")
-		app := initApp(platform, browser, conf)
+		app := initApp(platform)
 		req, err := http.NewRequest(http.MethodPost, session, test.reqBody)
 		if err != nil {
 			t.Fatal(err)
@@ -550,11 +531,20 @@ func TestNewSessionCreated(t *testing.T) {
 
 }
 
-func initApp(p *PlatformMock, b *config.BrowsersConfig, c Configuration) *App {
+func initApp(p *PlatformMock) *App {
 	logger := &logrus.Logger{}
 	client := NewPlatformMock(p)
+	conf := Configuration{
+		SelenosisHost:       "hostname",
+		ServiceName:         "selenosis",
+		SidecarPort:         "4445",
+		BrowserWaitTimeout:  300 * time.Millisecond,
+		SessionIddleTimeout: 600 * time.Millisecond,
+		SessionRetryCount:   2,
+	}
+	browsersConfig, _ := config.NewBrowsersConfig("config/browsers.yaml")
 
-	return New(logger, client, b, c)
+	return New(logger, client, browsersConfig, conf)
 }
 
 type PlatformMock struct {
