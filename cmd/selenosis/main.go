@@ -17,6 +17,17 @@ import (
 	"golang.org/x/net/websocket"
 )
 
+var (
+	ports = struct {
+		VNC, Devtools, Fileserver, Clipboard string
+	}{
+		VNC:        "5900",
+		Devtools:   "7070",
+		Fileserver: "8080",
+		Clipboard:  "9090",
+	}
+)
+
 //Command ...
 func command() *cobra.Command {
 
@@ -76,7 +87,8 @@ func command() *cobra.Command {
 			router := mux.NewRouter()
 			router.HandleFunc("/wd/hub/session", app.HandleSession).Methods(http.MethodPost)
 			router.PathPrefix("/wd/hub/session/{sessionId}").HandlerFunc(app.HandleProxy)
-			router.PathPrefix("/vnc/{sessionId}").Handler(websocket.Handler(app.HandleVNC))
+			router.PathPrefix("/vnc/{sessionId}").Handler(websocket.Handler(app.HandleVNC(ports.VNC)))
+			router.PathPrefix("/devtools/{sessionId}").HandlerFunc(app.HandleReverseProxy(ports.Devtools))
 
 			srv := &http.Server{
 				Addr:    address,

@@ -30,14 +30,6 @@ var (
 			return http.ErrUseLastResponse
 		},
 	}
-	ports = struct {
-		VNC, Devtools, Fileserver, Clipboard string
-	}{
-		VNC:        "5900",
-		Devtools:   "7070",
-		Fileserver: "8080",
-		Clipboard:  "9090",
-	}
 )
 
 //HandleSession ...
@@ -211,10 +203,10 @@ func (s *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 
 	(&httputil.ReverseProxy{
 		Director: func(r *http.Request) {
-			r.Header.Set("X-Forwarded-Selenosis", s.selenosisHost)
 			r.URL.Scheme = "http"
 			r.Host = host
 			r.URL.Host = host
+			r.Header.Set("X-Forwarded-Selenosis", s.selenosisHost)
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.Errorf("Proxy error: %s", err)
@@ -245,7 +237,7 @@ func (s *App) HandleReverseProxy(port string) func(http.ResponseWriter, *http.Re
 		(&httputil.ReverseProxy{
 			Director: func(r *http.Request) {
 				r.URL.Scheme = "http"
-				r.URL.Host = tools.BuildHostPort(sessionID, s.serviceName, s.sidecarPort)
+				r.URL.Host = tools.BuildHostPort(sessionID, s.serviceName, port)
 				r.URL.Path = path
 			},
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -257,29 +249,30 @@ func (s *App) HandleReverseProxy(port string) func(http.ResponseWriter, *http.Re
 }
 
 //HandleVNC ...
-func (s *App) HandleVNC(c *websocket.Conn) {
-	defer c.Close()
+func (s *App) HandleVNC(port string) websocket.Handler {
+	return func(c *websocket.Conn) {
+		defer c.Close()
 
-	vars := mux.Vars(c.Request())
-	sessionID := vars["sessionId"]
+		vars := mux.Vars(c.Request())
+		sessionID := vars["sessionId"]
 
-	host := tools.BuildHostPort(sessionID, s.serviceName, ports.Devtools)
+		host := tools.BuildHostPort(sessionID, s.serviceName, port)
 
-	var dialer net.Dialer
-	conn, err := dialer.DialContext(c.Request().Context(), "tcp", host)
-	if err != nil {
-		s.logger.Errorf("vnc connection error: %v", err)
+		var dialer net.Dialer
+		conn, err := dialer.DialContext(c.Request().Context(), "tcp", host)
+		if err != nil {
+			s.logger.Errorf("vnc connection error: %v", err)
+		}
+		defer conn.Close()
+
+		go func() {
+			io.Copy(c, conn)
+			c.Close()
+			s.logger.Errorf("vnc connection closed")
+		}()
+		io.Copy(conn, c)
+		s.logger.Errorf("client disconnected")
 	}
-	defer conn.Close()
-
-	go func() {
-		io.Copy(c, conn)
-		c.Close()
-		s.logger.Errorf("vnc connection closed")
-	}()
-	io.Copy(conn, c)
-	s.logger.Errorf("client disconnected")
-
 }
 
 func parseImage(image string) (container string) {
