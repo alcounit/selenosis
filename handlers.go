@@ -198,6 +198,7 @@ func (s *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 
 	vars := mux.Vars(r)
 	sessionID := vars["sessionId"]
+	host := tools.BuildHostPort(sessionID, s.serviceName, s.sidecarPort)
 
 	logger := s.logger.WithFields(logrus.Fields{
 		"request_method": r.Method,
@@ -210,8 +211,8 @@ func (s *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 
 	(&httputil.ReverseProxy{
 		Director: func(r *http.Request) {
+			r.Header.Set("X-Forwarded-Selenosis", s.selenosisHost)
 			r.URL.Scheme = "http"
-			host := tools.BuildHostPort(sessionID, s.serviceName, s.sidecarPort)
 			r.Host = host
 			r.URL.Host = host
 		},
