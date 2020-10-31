@@ -17,17 +17,6 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-var (
-	ports = struct {
-		VNC, Devtools, Fileserver, Clipboard string
-	}{
-		VNC:        "5900",
-		Devtools:   "7070",
-		Fileserver: "8080",
-		Clipboard:  "9090",
-	}
-)
-
 //Command ...
 func command() *cobra.Command {
 
@@ -50,14 +39,14 @@ func command() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 
 			logger := logrus.New()
-			logger.Info("Starting selenosis")
+			logger.Info("starting selenosis")
 
 			browsers, err := config.NewBrowsersConfig(cfgFile)
 			if err != nil {
-				logger.Fatalf("Failed to read config: %v", err)
+				logger.Fatalf("failed to read config: %v", err)
 			}
 
-			logger.Info("Browsers config file loaded")
+			logger.Info("browsers config file loaded")
 
 			client, err := platform.NewClient(platform.ClientConfig{
 				Namespace:        namespace,
@@ -68,10 +57,10 @@ func command() *cobra.Command {
 			})
 
 			if err != nil {
-				logger.Fatalf("Failed to create kubernetes client: %v", err)
+				logger.Fatalf("failed to create kubernetes client: %v", err)
 			}
 
-			logger.Info("Kubernetes client created")
+			logger.Info("kubernetes client created")
 
 			hostname, _ := os.Hostname()
 
@@ -87,8 +76,10 @@ func command() *cobra.Command {
 			router := mux.NewRouter()
 			router.HandleFunc("/wd/hub/session", app.HandleSession).Methods(http.MethodPost)
 			router.PathPrefix("/wd/hub/session/{sessionId}").HandlerFunc(app.HandleProxy)
-			router.PathPrefix("/vnc/{sessionId}").Handler(websocket.Handler(app.HandleVNC(ports.VNC)))
-			router.PathPrefix("/devtools/{sessionId}").HandlerFunc(app.HandleReverseProxy(ports.Devtools))
+			router.PathPrefix("/vnc/{sessionId}").Handler(websocket.Handler(app.HandleVNC()))
+			router.PathPrefix("/devtools/{sessionId}").HandlerFunc(app.HandleReverseProxy)
+			router.PathPrefix("/download/{sessionId}").HandlerFunc(app.HandleReverseProxy)
+			router.PathPrefix("/clipboard/{sessionId}").HandlerFunc(app.HandleReverseProxy)
 
 			srv := &http.Server{
 				Addr:    address,
@@ -105,7 +96,7 @@ func command() *cobra.Command {
 
 			select {
 			case err := <-e:
-				logger.Fatalf("failed to start: %v", err)
+				logger.Fatalf("failed to start selenosis: %v", err)
 			case <-stop:
 				logger.Warn("stopping selenosis")
 			}
@@ -114,7 +105,7 @@ func command() *cobra.Command {
 			defer cancel()
 
 			if err := srv.Shutdown(ctx); err != nil {
-				logger.Fatalf("faled to stop", err)
+				logger.Fatalf("faled to stop selenosis", err)
 			}
 		},
 	}

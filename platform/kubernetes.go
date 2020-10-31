@@ -22,13 +22,10 @@ import (
 
 var (
 	browserPorts = struct {
-		selenium, fileserver, clipboard, vnc, devtools intstr.IntOrString
+		selenium,vnc intstr.IntOrString
 	}{
 		selenium:   intstr.FromString("4444"),
-		fileserver: intstr.FromString("8080"),
-		clipboard:  intstr.FromString("9090"),
 		vnc:        intstr.FromString("5900"),
-		devtools:   intstr.FromString("7070"),
 	}
 
 	defaults = struct {
@@ -319,9 +316,6 @@ func getBrowserPorts() []apiv1.ContainerPort {
 		port = append(port, apiv1.ContainerPort{Name: name, ContainerPort: int32(value)})
 	}
 
-	fn("clipboard", browserPorts.clipboard.IntValue())
-	fn("devtools", browserPorts.devtools.IntValue())
-	fn("fileserver", browserPorts.fileserver.IntValue())
 	fn("vnc", browserPorts.vnc.IntValue())
 	fn("selenium", browserPorts.selenium.IntValue())
 

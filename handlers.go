@@ -36,15 +36,14 @@ var (
 func (s *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	logger := s.logger.WithFields(logrus.Fields{
-		"request_method": r.Method,
-		"req_path":       r.URL.Path,
-		"request_id":     uuid.New(),
+		"request_id": uuid.New(),
+		"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
 	})
 	logger.WithField("time_elapsed", tools.TimeElapsed(start)).Info("session")
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("Failed to read request body: %v", err)
+		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("failed to read request body: %v", err)
 		tools.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -61,7 +60,7 @@ func (s *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 	caps := request{}
 	err = json.Unmarshal(body, &caps)
 	if err != nil {
-		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("Failed to parse request: %v", err)
+		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("failed to parse request: %v", err)
 		tools.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -93,7 +92,7 @@ func (s *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("Requested browser config not found: %v", err)
+		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("requested browser config not found: %v", err)
 		tools.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -105,11 +104,11 @@ func (s *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 		Template:              browser,
 	}
 
-	logger.WithField("time_elapsed", tools.TimeElapsed(start)).Infof("Creating pod from image: %s", template.Template.Image)
+	logger.WithField("time_elapsed", tools.TimeElapsed(start)).Infof("starting browser from image: %s", template.Template.Image)
 
 	service, err := s.client.Create(template)
 	if err != nil {
-		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("Failed to start pod: %v", err)
+		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("failed to start browser: %v", err)
 		tools.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -117,8 +116,6 @@ func (s *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 	cancel := func() {
 		service.CancelFunc()
 	}
-
-	logger.WithField("time_elapsed", tools.TimeElapsed(start)).Infof("Pod started: %s", service.SessionID)
 
 	var resp *http.Response
 
@@ -138,11 +135,11 @@ func (s *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 			}
 			switch ctx.Err() {
 			case context.DeadlineExceeded:
-				logger.WithField("time_elapsed", tools.TimeElapsed(start)).Warn("Session attempt timeout")
+				logger.WithField("time_elapsed", tools.TimeElapsed(start)).Warn("session attempt timeout")
 				if i < s.sessionRetryCount {
 					continue
 				}
-				logger.WithField("time_elapsed", tools.TimeElapsed(start)).Warn("Service is not ready")
+				logger.WithField("time_elapsed", tools.TimeElapsed(start)).Warn("service is not ready")
 				tools.JSONError(w, "New session attempts retry count exceeded", http.StatusInternalServerError)
 			case context.Canceled:
 				logger.WithField("time_elapsed", tools.TimeElapsed(start)).Warn("Client disconnected")
@@ -164,15 +161,13 @@ func (s *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 		break
 	}
 
-	logger.WithField("time_elapsed", tools.TimeElapsed(start)).Infof("Browser response code: %d", resp.StatusCode)
-
 	defer resp.Body.Close()
 
 	var msg map[string]interface{}
 	err = json.NewDecoder(resp.Body).Decode(&msg)
 	if err != nil {
 		cancel()
-		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("Unable to read service response: %v", err)
+		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("unable to read service response: %v", err)
 		tools.JSONError(w, "Failed to read service response", http.StatusInternalServerError)
 		return
 	}
@@ -181,25 +176,21 @@ func (s *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.StatusCode)
 	json.NewEncoder(w).Encode(msg)
 
-	logger.WithField("time_elapsed", tools.TimeElapsed(start)).Infof("Browser sessionId: %s", service.SessionID)
+	logger.WithField("time_elapsed", tools.TimeElapsed(start)).Infof("browser sessionId: %s", service.SessionID)
 
 }
 
 //HandleProxy ...
 func (s *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
-
 	vars := mux.Vars(r)
 	sessionID := vars["sessionId"]
 	host := tools.BuildHostPort(sessionID, s.serviceName, s.sidecarPort)
 
 	logger := s.logger.WithFields(logrus.Fields{
-		"request_method": r.Method,
-		"session_id":     sessionID,
-		"req_path":       r.URL.Path,
-		"request_id":     uuid.New(),
+		"request_id": uuid.New(),
+		"session_id": sessionID,
+		"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
 	})
-
-	logger.Info("proxy")
 
 	(&httputil.ReverseProxy{
 		Director: func(r *http.Request) {
@@ -207,9 +198,10 @@ func (s *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 			r.Host = host
 			r.URL.Host = host
 			r.Header.Set("X-Forwarded-Selenosis", s.selenosisHost)
+			logger.Info("proxying session")
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			logger.Errorf("Proxy error: %s", err)
+			logger.Errorf("proxying session error: %v", err)
 			w.WriteHeader(http.StatusBadGateway)
 		},
 	}).ServeHTTP(w, r)
@@ -217,46 +209,39 @@ func (s *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 //HandleReverseProxy ...
-func (s *App) HandleReverseProxy(port string) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
+func (s *App) HandleReverseProxy(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	sessionID := vars["sessionId"]
+	fragments := strings.Split(r.URL.Path, "/")
+	logger := s.logger.WithFields(logrus.Fields{
+		"request_id": uuid.New(),
+		"session_id": sessionID,
+		"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
+	})
 
-		vars := mux.Vars(r)
-		sessionID := vars["sessionId"]
-
-		fragments := strings.Split(r.URL.Path, "/")
-		path := "/" + strings.Join(fragments[3:], "/")
-		logger := s.logger.WithFields(logrus.Fields{
-			"request_method": r.Method,
-			"session_id":     sessionID,
-			"req_path":       strings.TrimPrefix(r.URL.Path, "/wd/hub"),
-			"request_id":     uuid.New(),
-		})
-
-		logger.Info("proxy")
-
-		(&httputil.ReverseProxy{
-			Director: func(r *http.Request) {
-				r.URL.Scheme = "http"
-				r.URL.Host = tools.BuildHostPort(sessionID, s.serviceName, port)
-				r.URL.Path = path
-			},
-			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-				logger.Errorf("Proxy error: %s", err)
-				w.WriteHeader(http.StatusBadGateway)
-			},
-		}).ServeHTTP(w, r)
-	}
+	(&httputil.ReverseProxy{
+		Director: func(r *http.Request) {
+			r.URL.Scheme = "http"
+			r.URL.Host = tools.BuildHostPort(sessionID, s.serviceName, s.sidecarPort)
+			r.Header.Set("X-Forwarded-Selenosis", s.selenosisHost)
+			logger.Infof("proxying %s", fragments[1])
+		},
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			logger.Errorf("%s proxying error: %v", fragments[1], err)
+			w.WriteHeader(http.StatusBadGateway)
+		},
+	}).ServeHTTP(w, r)
 }
 
 //HandleVNC ...
-func (s *App) HandleVNC(port string) websocket.Handler {
+func (s *App) HandleVNC() websocket.Handler {
 	return func(c *websocket.Conn) {
 		defer c.Close()
 
 		vars := mux.Vars(c.Request())
 		sessionID := vars["sessionId"]
 
-		host := tools.BuildHostPort(sessionID, s.serviceName, port)
+		host := tools.BuildHostPort(sessionID, s.serviceName, s.sidecarPort)
 
 		var dialer net.Dialer
 		conn, err := dialer.DialContext(c.Request().Context(), "tcp", host)
@@ -271,7 +256,7 @@ func (s *App) HandleVNC(port string) websocket.Handler {
 			s.logger.Errorf("vnc connection closed")
 		}()
 		io.Copy(conn, c)
-		s.logger.Errorf("client disconnected")
+		s.logger.Errorf("vnc client disconnected")
 	}
 }
 
