@@ -33,9 +33,9 @@ var (
 )
 
 //HandleSession ...
-func (s *App) HandleSession(w http.ResponseWriter, r *http.Request) {
+func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	logger := s.logger.WithFields(logrus.Fields{
+	logger := app.logger.WithFields(logrus.Fields{
 		"request_id": uuid.New(),
 		"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
 	})
@@ -85,7 +85,7 @@ func (s *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 		mergo.Merge(&capabilities, first)
 		capabilities.ValidateCapabilities()
 
-		browser, err = s.browsers.Find(capabilities.BrowserName, capabilities.BrowserVersion)
+		browser, err = app.browsers.Find(capabilities.BrowserName, capabilities.BrowserVersion)
 		if err == nil {
 			break
 		}
@@ -106,7 +106,7 @@ func (s *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 
 	logger.WithField("time_elapsed", tools.TimeElapsed(start)).Infof("starting browser from image: %s", template.Template.Image)
 
-	service, err := s.client.Create(template)
+	service, err := app.client.Create(template)
 	if err != nil {
 		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("failed to start browser: %v", err)
 		tools.JSONError(w, err.Error(), http.StatusBadRequest)
@@ -124,8 +124,8 @@ func (s *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 	i := 1
 	for ; ; i++ {
 		req, _ := http.NewRequest(http.MethodPost, service.URL.String(), bytes.NewReader(body))
-		req.Header.Set("X-Forwarded-Selenosis", s.selenosisHost)
-		ctx, done := context.WithTimeout(r.Context(), s.browserWaitTimeout)
+		req.Header.Set("X-Forwarded-Selenosis", app.selenosisHost)
+		ctx, done := context.WithTimeout(r.Context(), app.browserWaitTimeout)
 		rsp, err := httpClient.Do(req.WithContext(ctx))
 		defer done()
 		select {
@@ -136,7 +136,7 @@ func (s *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 			switch ctx.Err() {
 			case context.DeadlineExceeded:
 				logger.WithField("time_elapsed", tools.TimeElapsed(start)).Warn("session attempt timeout")
-				if i < s.sessionRetryCount {
+				if i < app.sessionRetryCount {
 					continue
 				}
 				logger.WithField("time_elapsed", tools.TimeElapsed(start)).Warn("service is not ready")
@@ -181,12 +181,12 @@ func (s *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 }
 
 //HandleProxy ...
-func (s *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
+func (app *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	sessionID := vars["sessionId"]
-	host := tools.BuildHostPort(sessionID, s.serviceName, s.sidecarPort)
+	host := tools.BuildHostPort(sessionID, app.serviceName, app.sidecarPort)
 
-	logger := s.logger.WithFields(logrus.Fields{
+	logger := app.logger.WithFields(logrus.Fields{
 		"request_id": uuid.New(),
 		"session_id": sessionID,
 		"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
@@ -197,7 +197,7 @@ func (s *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 			r.URL.Scheme = "http"
 			r.Host = host
 			r.URL.Host = host
-			r.Header.Set("X-Forwarded-Selenosis", s.selenosisHost)
+			r.Header.Set("X-Forwarded-Selenosis", app.selenosisHost)
 			logger.Info("proxying session")
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -208,12 +208,38 @@ func (s *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 
 }
 
+//HadleHubStatus ...
+func (app *App) HadleHubStatus(w http.ResponseWriter, r *http.Request) {
+	logger := app.logger.WithFields(logrus.Fields{
+		"request_id": uuid.New(),
+		"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+
+	l, err := app.client.List()
+	if err != nil {
+		logger.Errorf("hub status: %v", err)
+		tools.JSONError(w, "Failed to get browsers list", http.StatusInternalServerError)
+	}
+
+	json.NewEncoder(w).Encode(
+		map[string]interface{}{
+			"value": map[string]interface{}{
+				"message": "selenosis up and running",
+				"ready":   len(l),
+			},
+		})
+
+	logger.WithField("active_sessions", len(l)).Infof("hub status")
+}
+
 //HandleReverseProxy ...
-func (s *App) HandleReverseProxy(w http.ResponseWriter, r *http.Request) {
+func (app *App) HandleReverseProxy(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	sessionID := vars["sessionId"]
 	fragments := strings.Split(r.URL.Path, "/")
-	logger := s.logger.WithFields(logrus.Fields{
+	logger := app.logger.WithFields(logrus.Fields{
 		"request_id": uuid.New(),
 		"session_id": sessionID,
 		"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
@@ -222,8 +248,8 @@ func (s *App) HandleReverseProxy(w http.ResponseWriter, r *http.Request) {
 	(&httputil.ReverseProxy{
 		Director: func(r *http.Request) {
 			r.URL.Scheme = "http"
-			r.URL.Host = tools.BuildHostPort(sessionID, s.serviceName, s.sidecarPort)
-			r.Header.Set("X-Forwarded-Selenosis", s.selenosisHost)
+			r.URL.Host = tools.BuildHostPort(sessionID, app.serviceName, app.sidecarPort)
+			r.Header.Set("X-Forwarded-Selenosis", app.selenosisHost)
 			logger.Infof("proxying %s", fragments[1])
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -234,29 +260,29 @@ func (s *App) HandleReverseProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 //HandleVNC ...
-func (s *App) HandleVNC() websocket.Handler {
+func (app *App) HandleVNC() websocket.Handler {
 	return func(c *websocket.Conn) {
 		defer c.Close()
 
 		vars := mux.Vars(c.Request())
 		sessionID := vars["sessionId"]
 
-		host := tools.BuildHostPort(sessionID, s.serviceName, s.sidecarPort)
+		host := tools.BuildHostPort(sessionID, app.serviceName, app.sidecarPort)
 
 		var dialer net.Dialer
 		conn, err := dialer.DialContext(c.Request().Context(), "tcp", host)
 		if err != nil {
-			s.logger.Errorf("vnc connection error: %v", err)
+			app.logger.Errorf("vnc connection error: %v", err)
 		}
 		defer conn.Close()
 
 		go func() {
 			io.Copy(c, conn)
 			c.Close()
-			s.logger.Errorf("vnc connection closed")
+			app.logger.Errorf("vnc connection closed")
 		}()
 		io.Copy(conn, c)
-		s.logger.Errorf("vnc client disconnected")
+		app.logger.Errorf("vnc client disconnected")
 	}
 }
 

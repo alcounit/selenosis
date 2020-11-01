@@ -2,7 +2,6 @@ package platform
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -22,10 +21,10 @@ import (
 
 var (
 	browserPorts = struct {
-		selenium,vnc intstr.IntOrString
+		selenium, vnc intstr.IntOrString
 	}{
-		selenium:   intstr.FromString("4444"),
-		vnc:        intstr.FromString("5900"),
+		selenium: intstr.FromString("4444"),
+		vnc:      intstr.FromString("5900"),
 	}
 
 	defaults = struct {
@@ -307,7 +306,35 @@ func (cl *Client) Delete(name string) error {
 
 //List ...
 func (cl *Client) List() ([]*Service, error) {
-	return nil, errors.New("not implemted yet")
+	context := context.Background()
+	pods, err := cl.clientset.Pods(cl.ns).List(context, metav1.ListOptions{
+		LabelSelector: "type=browser",
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pods: %v", err)
+	}
+
+	var services []*Service
+
+	for _, pod := range pods.Items {
+		podName := pod.GetName()
+		host := fmt.Sprintf("%s.%s", podName, cl.svc)
+		s := &Service{
+			SessionID: podName,
+			URL: &url.URL{
+				Scheme: "http",
+				Host:   net.JoinHostPort(host, cl.svcPort.StrVal),
+			},
+			CancelFunc: func() {
+				cl.Delete(podName)
+			},
+		}
+		services = append(services, s)
+	}
+
+	return services, nil
+
 }
 
 func getBrowserPorts() []apiv1.ContainerPort {
