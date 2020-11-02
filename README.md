@@ -1,8 +1,43 @@
 # selenosis
-Scalable, stateless selenium hub for Kubernetes cluster
+Scalable, stateless selenium hub for Kubernetes cluster.
+
+## Overview
+### Available flags
+```
+[user@host]# ./selenosis --help
+Scallable, stateless selenium grid for Kubernetes cluster
+
+Usage:
+  selenosis [flags]
+
+Flags:
+      --port string                          port for selenosis (default ":4444")
+      --proxy-port string                    proxy continer port (default "4445")
+      --browsers-config string               browsers config (default "config/browsers.yaml")
+      --namespace string                     kubernetes namespace (default "default")
+      --service-name string                  kubernetes service name for browsers (default "selenosis")
+      --browser-wait-timeout duration        time in seconds that a browser will be ready (default 30s)
+      --session-wait-timeout duration        time in seconds that a session will be ready (default 1m0s)
+      --session-iddle-timeout duration       time in seconds that a session will iddle (default 5m0s)
+      --session-retry-count int              session retry count (default 3)
+      --graceful-shutdown-timeout duration   time in seconds  gracefull shutdown timeout (default 5m0s)
+  -h, --help                                 help for selenosis
+
+```
+
+### Available endpoints
+| Protocol   | Endpoint  |
+|---|---|---|
+| HTTP   | /wd/hub/session  |
+| HTTP  | /wd/hub/session/{sessionId}/ |
+| HTTP  | /wd/hub/status  |
+| WS   | /vnc/{sessionId}  |
+| WS/HTTP  | /devtools/{sessionId} |
+| HTTP  | /download/{sessionId}  |
+| HTTP  | /clipboard/{sessionId}  |
+<br/>
 
 ## Configuration
-
 Selenosis requires config to start browsers in K8 cluster. Config can be JSON or YAML file.<br/>
 Basic configuration be like (all fields in this example are mandatory):
 
@@ -337,7 +372,7 @@ chrome:
           app: veryCoolApp
 
 ```
-### Instalation
+## Deployment
 
 Clone deployment files
 ```
@@ -349,27 +384,52 @@ Create namespace
  kubectl apply -f 01-namespace.yaml
 ```
 
-Create config map with config for browsers
+Create config map from config file (yaml/json)
 ```
- kubectl apply -f 02-configmap.yaml
+ kubectl create cm selenosis-config --from-file=browsers.json=/path/to/browsers.json -n selenosis
 ```
 
 Create kubernetes service
 ```
- kubectl apply -f 03-service.yaml
+ kubectl apply -f 02-service.yaml
  ```
 
  Deploy selenosis
  ```
- kubectl apply -f 04-selenosis.yaml
+ kubectl apply -f 03-selenosis.yaml
  ```
-Browser images prepull (optional)
-```
-kubectl apply -f 05-image-prepull.yaml
-```
 
+ ## Run yout tests
+ ``` java
+ DesiredCapabilities capabilities = new DesiredCapabilities();
+capabilities.setBrowserName("chrome");
+capabilities.setVersion("85.0");
+capabilities.setCapability("enableVNC", true);
+capabilities.setCapability("enableVideo", false);
+
+RemoteWebDriver driver = new RemoteWebDriver(
+    URI.create("http://<loadBalancerIP|nodeIP>:<port>/wd/hub").toURL(), 
+    capabilities
+);
+ ```
+  ``` python
+from selenium import webdriver
+        
+capabilities = {
+    "browserName": "chrome",
+    "version": "85.0",
+    "enableVNC": True,
+    "enableVideo": False
+}
+
+driver = webdriver.Remote(
+    command_executor="http://<loadBalancerIP|nodeIP>:<port>/wd/hub",
+    desired_capabilities=capabilities)
+ ```
+
+## Features
 ### Scalability
-By default selenosis starts with 2 replica sets. To change it, edit selenosis deployment file: <b>04-selenosis.yaml</b>
+By default selenosis starts with 2 replica sets. To change it, edit selenosis deployment file: <b>03-selenosis.yaml</b>
 ``` yaml
 
 apiVersion: apps/v1beta1
@@ -384,4 +444,4 @@ spec:
 ```
 
 ### Stateless
-selenosis doesn't not store session state. All connections to the browsers are automatically assigned via headless service.
+Selenosis doesn't store any session info. All connections to the browsers are automatically assigned via headless service.
