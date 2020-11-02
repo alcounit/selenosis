@@ -373,31 +373,7 @@ chrome:
 
 ```
 ## Deployment
-
-Clone deployment files
-```
-git clone https://github.com/alcounit/selenosis-deploy.git && cd selenosis-deploy
-```
-
-Create namespace
-```
- kubectl apply -f 01-namespace.yaml
-```
-
-Create config map from config file (yaml/json)
-```
- kubectl create cm selenosis-config --from-file=browsers.json=/path/to/browsers.json -n selenosis
-```
-
-Create kubernetes service
-```
- kubectl apply -f 02-service.yaml
- ```
-
- Deploy selenosis
- ```
- kubectl apply -f 03-selenosis.yaml
- ```
+Files and steps required for selenosis deployment available in [selenosis-deploy](https://github.com/alcounit/selenosis-deploy) repository
 
  ## Run yout tests
  ``` java
