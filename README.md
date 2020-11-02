@@ -26,15 +26,15 @@ Flags:
 ```
 
 ### Available endpoints
-| Protocol   | Endpoint  |
-|---|---|---|
-| HTTP   | /wd/hub/session  |
-| HTTP  | /wd/hub/session/{sessionId}/ |
-| HTTP  | /wd/hub/status  |
-| WS   | /vnc/{sessionId}  |
-| WS/HTTP  | /devtools/{sessionId} |
-| HTTP  | /download/{sessionId}  |
-| HTTP  | /clipboard/{sessionId}  |
+| Protocol | Endpoint                    |
+|--------- |---------------------------- |
+| HTTP    | /wd/hub/session              |
+| HTTP    | /wd/hub/session/{sessionId}/ |
+| HTTP    | /wd/hub/status               |
+| WS      | /vnc/{sessionId}             |
+| WS/HTTP | /devtools/{sessionId}        |
+| HTTP    | /download/{sessionId}        |
+| HTTP    | /clipboard/{sessionId}       |
 <br/>
 
 ## Configuration
