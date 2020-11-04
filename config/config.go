@@ -14,10 +14,11 @@ import (
 
 //Layout ...
 type Layout struct {
-	DefaultSpec platform.Spec                    `yaml:"spec" json:"spec"`
-	Meta        platform.Meta                    `yaml:"meta" json:"meta"`
-	Path        string                           `yaml:"path" json:"path"`
-	Versions    map[string]*platform.BrowserSpec `yaml:"versions" json:"versions"`
+	DefaultSpec    platform.Spec                    `yaml:"spec" json:"spec"`
+	Meta           platform.Meta                    `yaml:"meta" json:"meta"`
+	Path           string                           `yaml:"path" json:"path"`
+	DefaultVersion string                           `yaml:"defaultVersion" json:"defaultVersion"`
+	Versions       map[string]*platform.BrowserSpec `yaml:"versions" json:"versions"`
 }
 
 //BrowsersConfig ...
@@ -72,7 +73,15 @@ func (cfg *BrowsersConfig) Find(name, version string) (*platform.BrowserSpec, er
 	}
 
 	v, ok := c.Versions[version]
+	
 	if !ok {
+		if c.DefaultVersion != "" {
+			v, ok = c.Versions[c.DefaultVersion]
+			if !ok {
+				return nil, fmt.Errorf("unknown browser version %s", version)
+			}
+			return v, nil
+		}
 		return nil, fmt.Errorf("unknown browser version %s", version)
 	}
 

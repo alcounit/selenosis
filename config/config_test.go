@@ -119,6 +119,7 @@ func TestConfigSearch(t *testing.T) {
 	tests := map[string]struct {
 		browserName    string
 		browserVersion string
+		defaultVersion string
 		config         string
 		err            error
 	}{
@@ -135,12 +136,12 @@ func TestConfigSearch(t *testing.T) {
 		"verify empty browser version for JSON config file": {
 			browserName: "chrome",
 			config:      "browsers.json",
-			err:         errors.New("unknown browser version "),
+			err:         nil,
 		},
 		"verify empty browser version for YAML config file": {
 			browserName: "chrome",
 			config:      "browsers.yaml",
-			err:         errors.New("unknown browser version "),
+			err:         nil,
 		},
 		"verify non existing browser name for JSON config file": {
 			browserName: "amigo",
@@ -156,13 +157,13 @@ func TestConfigSearch(t *testing.T) {
 			browserName:    "chrome",
 			browserVersion: "0.1",
 			config:         "browsers.json",
-			err:            errors.New("unknown browser version 0.1"),
+			err:            nil,
 		},
 		"verify non existing browser version for YAML config file": {
 			browserName:    "chrome",
 			browserVersion: "0.1",
 			config:         "browsers.yaml",
-			err:            errors.New("unknown browser version 0.1"),
+			err:            nil,
 		},
 		"verify no error if correct data provided for JSON config file": {
 			browserName:    "chrome",
@@ -175,6 +176,46 @@ func TestConfigSearch(t *testing.T) {
 			browserVersion: "68.0",
 			config:         "browsers.yaml",
 			err:            nil,
+		},
+		"verify no error if default version = correct and requested version = correct YAML config file": {
+			browserName:    "chrome",
+			defaultVersion: "68.0",
+			browserVersion: "69.0",
+			config:         "browsers.yaml",
+			err:            nil,
+		},
+		"verify no error if default version = correct and requested version = correct for YAML config file": {
+			browserName:    "chrome",
+			defaultVersion: "68.0",
+			browserVersion: "69.0",
+			config:         "browsers.yaml",
+			err:            nil,
+		},
+		"verify non existing browser version error when default version != correct and requested version != correct YAML config file": {
+			browserName:    "firefox",
+			defaultVersion: ".0",
+			browserVersion: "35.0",
+			config:         "browsers.yaml",
+			err:            errors.New("unknown browser version 35.0"),
+		},
+		"verify non existing browser version error when default version != correct and requested version != correct for YAML config file": {
+			browserName:    "firefox",
+			defaultVersion: ".0",
+			browserVersion: "35.0",
+			config:         "browsers.yaml",
+			err:            errors.New("unknown browser version 35.0"),
+		},
+		"verify non existing browser version error when default version == \"\" and requested version != correct YAML config file": {
+			browserName:    "opera",
+			browserVersion: "75.0",
+			config:         "browsers.yaml",
+			err:            errors.New("unknown browser version 75.0"),
+		},
+		"verify non existing browser version error when default version == \"\" and requested version != correct for YAML config file": {
+			browserName:    "opera",
+			browserVersion: "75.0",
+			config:         "browsers.yaml",
+			err:            errors.New("unknown browser version 75.0"),
 		},
 	}
 

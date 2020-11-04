@@ -120,7 +120,7 @@ func command() *cobra.Command {
 	cmd.Flags().DurationVar(&sessionWaitTimeout, "session-wait-timeout", 60*time.Second, "time in seconds that a session will be ready")
 	cmd.Flags().DurationVar(&sessionIddleTimeout, "session-iddle-timeout", 5*time.Minute, "time in seconds that a session will iddle")
 	cmd.Flags().IntVar(&sessionRetryCount, "session-retry-count", 3, "session retry count")
-	cmd.Flags().DurationVar(&shutdownTimeout, "graceful-shutdown-timeout", 300*time.Second, "time in seconds  gracefull shutdown timeout")
+	cmd.Flags().DurationVar(&shutdownTimeout, "graceful-shutdown-timeout", 30*time.Second, "time in seconds  gracefull shutdown timeout")
 	cmd.Flags().SortFlags = false
 
 	return cmd

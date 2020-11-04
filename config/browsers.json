@@ -1,10 +1,11 @@
 {
     "chrome": {
       "path": "/",
+      "defaultVersion": "68.0",
       "meta": {
         "labels": {
           "environment": "production",
-          "app": "nginx"
+          "app": "projectx"
         },
         "annotations": {
           "key1" : "value1",
@@ -53,7 +54,7 @@
           }
         ],
         "nodeSelector": {
-          "accelerator": "nvidia-tesla-p100"
+          "nodeType": "N2D"
         }
       },
       "versions": {
@@ -76,15 +77,50 @@
               }
             }
           }
+        },
+        "86.0": {
+          "image": "selenoid/vnc:chrome_86.0",
+          "meta": {
+            "labels": {
+              "environment": "dev"
+            }
+          },
+          "spec": {
+            "resources": {
+              "requests": {
+                "memory": "1000Mi",
+                "cpu": "0.5"
+              },
+              "limits": {
+                "memory": "1500Gi",
+                "cpu": "1.5"
+              }
+            }
+          }
         }
       }
     },
     "firefox": {
+      "defaultVersion": "0",
       "path": "/wd/hub",
-      "spec": null
+      "versions": {
+        "45.0": {
+          "image": "selenoid/vnc:firefox_45.0"
+        },
+        "47.0": {
+          "image": "selenoid/vnc:firefox_47.0"
+        }
+      }
     },
     "opera": {
       "path": "/",
-      "spec": null
+      "versions": {
+        "66.0": {
+          "image": "selenoid/vnc:opera_66.0"
+        },
+        "71.0": {
+          "image": "selenoid/vnc:opera_71.0"
+        }
     }
   }
+}

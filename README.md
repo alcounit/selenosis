@@ -44,6 +44,7 @@ Basic configuration be like (all fields in this example are mandatory):
 ```json
 {
     "chrome": {
+        "defaultVersion": "85.0",
         "path": "/",
         "versions": {
             "85.0": {
@@ -55,6 +56,7 @@ Basic configuration be like (all fields in this example are mandatory):
         }
     },
     "firefox": {
+        "defaultVersion": "82.0",
         "path": "/wd/hub",
         "versions": {
             "81.0": {
@@ -67,6 +69,7 @@ Basic configuration be like (all fields in this example are mandatory):
     },
 
     "opera" : {
+        "defaultVersion": "70.0",
         "path": "/",
         "versions": {
             "70.0": {
@@ -82,6 +85,7 @@ Basic configuration be like (all fields in this example are mandatory):
 ``` yaml
 ---
 chrome:
+  defaultVersion: "85.0"
   path: "/"
   versions:
     '85.0':
@@ -89,6 +93,7 @@ chrome:
     '86.0':
       image: selenoid/vnc:chrome:86.0
 firefox:
+  defaultVersion: "81.0"
   path: "/wd/hub"
   versions:
     '81.0':
@@ -96,6 +101,7 @@ firefox:
     '82.0':
       image: selenoid/vnc:firefox_82.0
 opera:
+  defaultVersion: "81.0"
   path: "/"
   versions:
     '70.0':
@@ -104,6 +110,7 @@ opera:
       image: selenoid/vnc:opera_71.0
 ```
 
+
 Browser name and browser version are taken from Selenium desired capabilities.<br/>
 
 Each browser can have default <b>spec/annotations/labels</b>, they will merged to all browsers listed in the <b>versions</b> section.
@@ -111,6 +118,7 @@ Each browser can have default <b>spec/annotations/labels</b>, they will merged t
 ``` json
 {
   "chrome": {
+    "defaultVersion": "85.0",
     "path": "/",
     "meta": {
       "labels": {
@@ -179,6 +187,7 @@ Each browser can have default <b>spec/annotations/labels</b>, they will merged t
 ``` yaml
 ---
 chrome:
+  defaultVersion: "85.0"
   path: "/"
   meta:
     labels:
@@ -221,6 +230,7 @@ You can override default browser <b>spec/annotation/labels</b> by providing indi
 ``` json
 {
   "chrome": {
+    "defaultVersion": "85.0",
     "path": "/",
     "meta": {
       "labels": {
@@ -316,6 +326,7 @@ You can override default browser <b>spec/annotation/labels</b> by providing indi
 ``` yaml
 ---
 chrome:
+  defaultVersion: "85.0"
   path: "/"
   meta:
     labels:

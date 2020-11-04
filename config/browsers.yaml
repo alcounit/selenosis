@@ -1,10 +1,11 @@
 ---
     chrome:
-        path : /
+        defaultVersion: "68.0"
+        path: /
         meta: 
           labels:
           environment: production
-          app: nginx
+          app: projectx
         spec:
           resources:
             requests:
@@ -30,7 +31,7 @@
           - name: ENABLE_VNC
             value: 'true'    
           nodeSelector:
-            accelerator: nvidia-tesla-p100
+            nodeType: N2D
         versions: 
           '68.0':
             image: selenoid/vnc:chrome_68.0
@@ -45,9 +46,31 @@
                 limits:
                   memory: "1500Gi"
                   cpu: "1.5"
+          '86.0':
+            image: selenoid/vnc:chrome_86.0
+            meta:
+              labels:
+              environment: dev
+            spec:
+              resources:
+                requests:
+                  memory: "1000Mi"
+                  cpu: "0.5"
+                limits:
+                  memory: "1500Gi"
+                  cpu: "1.5"
     firefox:
+        defaultVersion: 0
         path : /wd/hub
-        spec:
+        versions: 
+          '45.0':
+            image: selenoid/vnc:firefox_45.0
+          '47.0':
+            image: selenoid/vnc:firefox_45.0
     opera:
         path : /
-        spec:
+        versions: 
+          '66.0':
+            image: selenoid/vnc:opera_66.0
+          '71.0':
+            image: selenoid/vnc:opera_71.0
