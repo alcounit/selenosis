@@ -20,12 +20,12 @@ func TestConfigFileData(t *testing.T) {
 		"verify empty JSON config is not allowed": {
 			data:   ``,
 			config: "browsers.json",
-			err:    errors.New("parse error: EOF"),
+			err:    errors.New("failed to read config: parse error: EOF"),
 		},
 		"verify empty YAML config is not allowed": {
 			data:   ``,
 			config: "browsers.yaml",
-			err:    errors.New("parse error: EOF"),
+			err:    errors.New("failed to read config: parse error: EOF"),
 		},
 		"verify invalid characters not allowed for JSON config": {
 			data: `{
@@ -37,7 +37,7 @@ func TestConfigFileData(t *testing.T) {
 						"memory": "500Mi",
 						"cpu": "0.5"`,
 			config: "browsers.json",
-			err:    errors.New("parse error: unexpected EOF"),
+			err:    errors.New("failed to read config: parse error: unexpected EOF"),
 		},
 		"verify invalid characters not allowed for YAML config": {
 			data: `---
@@ -48,17 +48,17 @@ func TestConfigFileData(t *testing.T) {
 				  memory: 1Gi
 				hostAliases:`,
 			config: "browsers.yaml",
-			err:    errors.New("parse error: error converting YAML to JSON: yaml: line 2: found character that cannot start any token"),
+			err:    errors.New("failed to read config: parse error: error converting YAML to JSON: yaml: line 2: found character that cannot start any token"),
 		},
 		"verify empty JSON config is allowed ": {
 			data:   `{}`,
 			config: "browsers.json",
-			err:    errors.New("empty config: <nil>"),
+			err:    errors.New("failed to read config: empty config: <nil>"),
 		},
 		"verify empty YAML config is allowed ": {
 			data:   `---`,
 			config: "browsers.yaml",
-			err:    errors.New("empty config: <nil>"),
+			err:    errors.New("failed to read config: empty config: <nil>"),
 		},
 	}
 
@@ -81,7 +81,7 @@ func TestConfigFile(t *testing.T) {
 	}{
 		"verify config file not exist": {
 			data: empty,
-			err:  errors.New("read error: open : The system cannot find the file specified."),
+			err:  errors.New("failed to read config: read error: open : The system cannot find the file specified."),
 		},
 	}
 

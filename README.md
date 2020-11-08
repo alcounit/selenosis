@@ -432,3 +432,6 @@ spec:
 
 ### Stateless
 Selenosis doesn't store any session info. All connections to the browsers are automatically assigned via headless service.
+
+### Hot config reload
+Once you decide to update in browsers config

@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -287,6 +288,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 	svc := &Service{
 		SessionID: podName,
 		URL:       u,
+		Labels:    layout.Template.Meta.Labels,
 		CancelFunc: func() {
 			cancel()
 		},
@@ -318,23 +320,38 @@ func (cl *Client) List() ([]*Service, error) {
 	var services []*Service
 
 	for _, pod := range pods.Items {
-		podName := pod.GetName()
-		host := fmt.Sprintf("%s.%s", podName, cl.svc)
-		s := &Service{
-			SessionID: podName,
-			URL: &url.URL{
-				Scheme: "http",
-				Host:   net.JoinHostPort(host, cl.svcPort.StrVal),
-			},
-			CancelFunc: func() {
-				cl.Delete(podName)
-			},
+		if pod.Status.Phase == apiv1.PodRunning {
+			podName := pod.GetName()
+			host := fmt.Sprintf("%s.%s", podName, cl.svc)
+
+			s := &Service{
+				SessionID: podName,
+				URL: &url.URL{
+					Scheme: "http",
+					Host:   net.JoinHostPort(host, cl.svcPort.StrVal),
+				},
+				Labels: pod.GetLabels(),
+				CancelFunc: func() {
+					cl.Delete(podName)
+				},
+			}
+			services = append(services, s)
 		}
-		services = append(services, s)
 	}
 
 	return services, nil
 
+}
+
+//Logs ...
+func (cl *Client) Logs(ctx context.Context, name string) (io.ReadCloser, error) {
+	req := cl.clientset.Pods(cl.ns).GetLogs(name, &apiv1.PodLogOptions{
+		Container:  name,
+		Follow:     true,
+		Previous:   false,
+		Timestamps: false,
+	})
+	return req.Stream(ctx)
 }
 
 func getBrowserPorts() []apiv1.ContainerPort {

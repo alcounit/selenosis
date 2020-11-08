@@ -574,6 +574,10 @@ func (p *PlatformMock) List() ([]*platform.Service, error) {
 	return nil, nil
 }
 
+func (p *PlatformMock) Logs(ctx context.Context, name string) (io.ReadCloser, error) {
+	return nil, nil
+}
+
 type errReader int
 
 func (errReader) Read(p []byte) (n int, err error) {

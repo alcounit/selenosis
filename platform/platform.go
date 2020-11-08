@@ -1,6 +1,8 @@
 package platform
 
 import (
+	"context"
+	"io"
 	"net/url"
 
 	"github.com/alcounit/selenosis/selenium"
@@ -40,10 +42,11 @@ type ServiceSpec struct {
 
 //Service ...
 type Service struct {
-	SessionID  string
-	URL        *url.URL
-	OnTimeout  chan struct{}
-	CancelFunc func()
+	SessionID  string            `json:"id"`
+	URL        *url.URL          `json:"-"`
+	Labels     map[string]string `json:"labels"`
+	OnTimeout  chan struct{}     `json:"-"`
+	CancelFunc func()            `json:"-"`
 }
 
 //Platform ...
@@ -51,4 +54,5 @@ type Platform interface {
 	Create(*ServiceSpec) (*Service, error)
 	Delete(string) error
 	List() ([]*Service, error)
+	Logs(context.Context, string) (io.ReadCloser, error)
 }

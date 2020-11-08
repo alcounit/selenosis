@@ -3,6 +3,7 @@ module github.com/alcounit/selenosis
 go 1.14
 
 require (
+	github.com/fsnotify/fsnotify v1.4.9
 	github.com/google/uuid v1.1.2
 	github.com/gorilla/mux v1.8.0
 	github.com/imdario/mergo v0.3.11

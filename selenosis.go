@@ -13,6 +13,7 @@ type Configuration struct {
 	SelenosisHost       string
 	ServiceName         string
 	SidecarPort         string
+	SessionLimit        int
 	SessionRetryCount   int
 	BrowserWaitTimeout  time.Duration
 	SessionIddleTimeout time.Duration
@@ -26,6 +27,7 @@ type App struct {
 	selenosisHost       string
 	serviceName         string
 	sidecarPort         string
+	sessionLimit        int
 	sessionRetryCount   int
 	sessionIddleTimeout time.Duration
 	browserWaitTimeout  time.Duration
@@ -40,6 +42,7 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 		selenosisHost:       settings.SelenosisHost,
 		serviceName:         settings.ServiceName,
 		sidecarPort:         settings.SidecarPort,
+		sessionLimit:        settings.SessionLimit,
 		sessionRetryCount:   settings.SessionRetryCount,
 		browserWaitTimeout:  settings.BrowserWaitTimeout,
 		sessionIddleTimeout: settings.SessionIddleTimeout,

@@ -39,6 +39,20 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 		"request_id": uuid.New(),
 		"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
 	})
+
+	l, err := app.client.List()
+	if err != nil {
+		logger.Errorf("failed to get active session list: %v", err)
+		tools.JSONError(w, "Failed to get browsers list", http.StatusInternalServerError)
+		return
+	}
+
+	if len(l) >= app.sessionLimit {
+		logger.Warnf("active session limit reached: total %d, limit %d", len(l), app.sessionLimit)
+		tools.JSONError(w, "session limit reached", http.StatusInternalServerError)
+		return
+	}
+
 	logger.WithField("time_elapsed", tools.TimeElapsed(start)).Info("session")
 
 	body, err := ioutil.ReadAll(r.Body)
@@ -92,7 +106,7 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("requested browser config not found: %v", err)
+		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("requested browser not found: %v", err)
 		tools.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -261,29 +275,115 @@ func (app *App) HandleReverseProxy(w http.ResponseWriter, r *http.Request) {
 
 //HandleVNC ...
 func (app *App) HandleVNC() websocket.Handler {
-	return func(c *websocket.Conn) {
-		defer c.Close()
+	return func(wsconn *websocket.Conn) {
+		defer wsconn.Close()
 
-		vars := mux.Vars(c.Request())
+		vars := mux.Vars(wsconn.Request())
 		sessionID := vars["sessionId"]
 
-		host := tools.BuildHostPort(sessionID, app.serviceName, app.sidecarPort)
+		logger := app.logger.WithFields(logrus.Fields{
+			"request_id": uuid.New(),
+			"session_id": sessionID,
+			"request":    fmt.Sprintf("%s %s", wsconn.Request().Method, wsconn.Request().URL.Path),
+		})
+
+		host := tools.BuildHostPort(sessionID, app.serviceName, "5900")
+		logger.Infof("vnc request: %s", host)
 
 		var dialer net.Dialer
-		conn, err := dialer.DialContext(c.Request().Context(), "tcp", host)
+		conn, err := dialer.DialContext(wsconn.Request().Context(), "tcp", host)
 		if err != nil {
-			app.logger.Errorf("vnc connection error: %v", err)
+			logger.Errorf("vnc connection error: %v", err)
 		}
 		defer conn.Close()
+		wsconn.PayloadType = websocket.BinaryFrame
 
 		go func() {
-			io.Copy(c, conn)
-			c.Close()
-			app.logger.Errorf("vnc connection closed")
+			io.Copy(wsconn, conn)
+			wsconn.Close()
+			logger.Errorf("vnc connection closed")
 		}()
-		io.Copy(conn, c)
-		app.logger.Errorf("vnc client disconnected")
+		io.Copy(conn, wsconn)
+		logger.Errorf("vnc client disconnected")
 	}
+}
+
+//HandleLogs ...
+func (app *App) HandleLogs() websocket.Handler {
+	return func(wsconn *websocket.Conn) {
+		defer wsconn.Close()
+
+		vars := mux.Vars(wsconn.Request())
+		sessionID := vars["sessionId"]
+
+		logger := app.logger.WithFields(logrus.Fields{
+			"request_id": uuid.New(),
+			"session_id": sessionID,
+			"request":    fmt.Sprintf("%s %s", wsconn.Request().Method, wsconn.Request().URL.Path),
+		})
+
+		logger.Infof("stream logs request: %s", fmt.Sprintf("%s.%s", sessionID, app.serviceName))
+
+		r, err := app.client.Logs(wsconn.Request().Context(), sessionID)
+		if err != nil {
+			logger.Errorf("stream logs error: %v", err)
+		}
+		defer r.Close()
+		wsconn.PayloadType = websocket.BinaryFrame
+
+		go func() {
+			io.Copy(wsconn, r)
+			wsconn.Close()
+			logger.Errorf("stream logs connection closed")
+		}()
+		io.Copy(wsconn, r)
+		logger.Errorf("stream logs disconnected")
+	}
+}
+
+//HandleStatus ...
+func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	type Status struct {
+		Browsers map[string][]string `json:"config"`
+		Sessions []*platform.Service `json:"sessions"`
+	}
+
+	type Response struct {
+		Status    int    `json:"status"`
+		Error     error  `json:"err"`
+		Selenosis Status `json:"selenosis"`
+	}
+
+	sessions, err := app.client.List()
+	if err != nil {
+		app.logger.Errorf("hub status: %v", err)
+		json.NewEncoder(w).Encode(
+			Response{
+				Status: http.StatusInternalServerError,
+				Error:  err,
+				Selenosis: Status{
+					Browsers: app.browsers.GetBrowserVersions(),
+				},
+			},
+		)
+		return
+	}
+
+	err = json.NewEncoder(w).Encode(
+		Response{
+			Status: http.StatusOK,
+			Selenosis: Status{
+				Browsers: app.browsers.GetBrowserVersions(),
+				Sessions: sessions,
+			},
+		},
+	)
+	if err != nil {
+		w.Write([]byte(fmt.Sprintf("marshal err: %v", err)))
+	}
+	return
 }
 
 func parseImage(image string) (container string) {

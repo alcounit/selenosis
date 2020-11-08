@@ -23,13 +23,83 @@ type Layout struct {
 
 //BrowsersConfig ...
 type BrowsersConfig struct {
+	configFile string
 	lock       sync.RWMutex
 	containers map[string]*Layout
 }
 
 //NewBrowsersConfig returns parced browsers config from JSON or YAML file.
-func NewBrowsersConfig(cfg string) (*BrowsersConfig, error) {
-	content, err := ioutil.ReadFile(cfg)
+func NewBrowsersConfig(configFile string) (*BrowsersConfig, error) {
+	layouts, err := readConfig(configFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config: %v", err)
+	}
+
+	return &BrowsersConfig{
+		configFile: configFile,
+		containers: layouts,
+	}, nil
+}
+
+//Reload ...
+func (cfg *BrowsersConfig) Reload() error {
+	cfg.lock.Lock()
+	defer cfg.lock.Unlock()
+
+	layouts, err := readConfig(cfg.configFile)
+	if err != nil {
+		return fmt.Errorf("failed to read config: %v", err)
+	}
+
+	cfg.containers = layouts
+	return nil
+}
+
+//Find return Container if it present in config
+func (cfg *BrowsersConfig) Find(name, version string) (*platform.BrowserSpec, error) {
+	cfg.lock.Lock()
+	defer cfg.lock.Unlock()
+	c, ok := cfg.containers[name]
+	if !ok {
+		return nil, fmt.Errorf("unknown browser name %s", name)
+	}
+
+	v, ok := c.Versions[version]
+
+	if !ok {
+		if c.DefaultVersion != "" {
+			v, ok = c.Versions[c.DefaultVersion]
+			if !ok {
+				return nil, fmt.Errorf("unknown browser version %s", version)
+			}
+			return v, nil
+		}
+		return nil, fmt.Errorf("unknown browser version %s", version)
+	}
+
+	return v, nil
+}
+
+//GetBrowserVersions ...
+func (cfg *BrowsersConfig) GetBrowserVersions() map[string][]string {
+	cfg.lock.Lock()
+	defer cfg.lock.Unlock()
+
+	browsers := make(map[string][]string)
+
+	for name, layout := range cfg.containers {
+		versions := make([]string, 0)
+		for version := range layout.Versions {
+			versions = append(versions, version)
+		}
+		browsers[name] = versions
+	}
+
+	return browsers
+}
+
+func readConfig(configFile string) (map[string]*Layout, error) {
+	content, err := ioutil.ReadFile(configFile)
 	if err != nil {
 		return nil, fmt.Errorf("read error: %v", err)
 	}
@@ -57,35 +127,7 @@ func NewBrowsersConfig(cfg string) (*BrowsersConfig, error) {
 			}
 		}
 	}
-
-	return &BrowsersConfig{
-		containers: layouts,
-	}, nil
-}
-
-//Find return Container if it present in config
-func (cfg *BrowsersConfig) Find(name, version string) (*platform.BrowserSpec, error) {
-	cfg.lock.Lock()
-	defer cfg.lock.Unlock()
-	c, ok := cfg.containers[name]
-	if !ok {
-		return nil, fmt.Errorf("unknown browser name %s", name)
-	}
-
-	v, ok := c.Versions[version]
-	
-	if !ok {
-		if c.DefaultVersion != "" {
-			v, ok = c.Versions[c.DefaultVersion]
-			if !ok {
-				return nil, fmt.Errorf("unknown browser version %s", version)
-			}
-			return v, nil
-		}
-		return nil, fmt.Errorf("unknown browser version %s", version)
-	}
-
-	return v, nil
+	return layouts, nil
 }
 
 func merge(from, to map[string]string) map[string]string {
