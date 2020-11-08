@@ -1,0 +1,76 @@
+---
+    chrome:
+        defaultVersion: "68.0"
+        path: /
+        meta: 
+          labels:
+          environment: production
+          app: projectx
+        spec:
+          resources:
+            requests:
+              memory: "500Mi"
+              cpu: "0.5"
+            limits:
+              memory: "1000Gi"
+              cpu: "1"
+          hostAliases:
+          - ip: "127.0.0.1"
+            hostnames:
+              - "foo.local"
+              - "bar.local"
+          - ip: "10.1.2.3"
+            hostnames:
+              - "foo.remote"
+              - "bar.remote"
+          env:
+          - name: TZ
+            value: Europe/Kiev
+          - name: SCREEN_RESOLUTION
+            value: 1920x1080x24
+          - name: ENABLE_VNC
+            value: 'true'    
+          nodeSelector:
+            nodeType: N2D
+        versions: 
+          '68.0':
+            image: selenoid/vnc:chrome_68.0
+            meta:
+              labels:
+              environment: qa
+            spec:
+              resources:
+                requests:
+                  memory: "1000Mi"
+                  cpu: "0.5"
+                limits:
+                  memory: "1500Gi"
+                  cpu: "1.5"
+          '86.0':
+            image: selenoid/vnc:chrome_86.0
+            meta:
+              labels:
+              environment: dev
+            spec:
+              resources:
+                requests:
+                  memory: "1000Mi"
+                  cpu: "0.5"
+                limits:
+                  memory: "1500Gi"
+                  cpu: "1.5"
+    firefox:
+        defaultVersion: 0
+        path : /wd/hub
+        versions: 
+          '45.0':
+            image: selenoid/vnc:firefox_45.0
+          '47.0':
+            image: selenoid/vnc:firefox_45.0
+    opera:
+        path : /
+        versions: 
+          '66.0':
+            image: selenoid/vnc:opera_66.0
+          '71.0':
+            image: selenoid/vnc:opera_71.0
