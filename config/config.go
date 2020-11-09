@@ -72,11 +72,14 @@ func (cfg *BrowsersConfig) Find(name, version string) (*platform.BrowserSpec, er
 			if !ok {
 				return nil, fmt.Errorf("unknown browser version %s", version)
 			}
+			v.BrowserName = name
+			v.BrowserVersion = c.DefaultVersion
 			return v, nil
 		}
 		return nil, fmt.Errorf("unknown browser version %s", version)
 	}
-
+	v.BrowserName = name
+	v.BrowserVersion = version
 	return v, nil
 }
 

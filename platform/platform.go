@@ -27,10 +27,12 @@ type Spec struct {
 
 //BrowserSpec describes settings for Service
 type BrowserSpec struct {
-	Image string `yaml:"image" json:"image"`
-	Path  string `yaml:"path" json:"path"`
-	Meta  Meta   `yaml:"meta" json:"meta"`
-	Spec  Spec   `yaml:"spec" json:"spec"`
+	BrowserName    string `yaml:"-" json:"-"`
+	BrowserVersion string `yaml:"-" json:"-"`
+	Image          string `yaml:"image" json:"image"`
+	Path           string `yaml:"path" json:"path"`
+	Meta           Meta   `yaml:"meta" json:"meta"`
+	Spec           Spec   `yaml:"spec" json:"spec"`
 }
 
 //ServiceSpec describes data requred for creating service

@@ -110,8 +110,8 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 
 	labels := map[string]string{
 		defaults.serviceType:    "browser",
-		defaults.browserName:    layout.RequestedCapabilities.BrowserName,
-		defaults.browserVersion: layout.RequestedCapabilities.BrowserVersion,
+		defaults.browserName:    layout.Template.BrowserName,
+		defaults.browserVersion: layout.Template.BrowserVersion,
 		defaults.testName:       layout.RequestedCapabilities.TestName,
 		defaults.session:        layout.SessionID,
 	}
