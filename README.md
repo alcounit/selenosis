@@ -14,6 +14,7 @@ Flags:
       --port string                          port for selenosis (default ":4444")
       --proxy-port string                    proxy continer port (default "4445")
       --browsers-config string               browsers config (default "config/browsers.yaml")
+      --browser-limit int                    active sessions max limit (default 10)
       --namespace string                     kubernetes namespace (default "default")
       --service-name string                  kubernetes service name for browsers (default "selenosis")
       --browser-wait-timeout duration        time in seconds that a browser will be ready (default 30s)
@@ -35,6 +36,8 @@ Flags:
 | WS/HTTP | /devtools/{sessionId}        |
 | HTTP    | /download/{sessionId}        |
 | HTTP    | /clipboard/{sessionId}       |
+| HTTP    | /status                      |
+| HTTP    | /healthz                     |
 <br/>
 
 ## Configuration
@@ -434,4 +437,7 @@ spec:
 Selenosis doesn't store any session info. All connections to the browsers are automatically assigned via headless service.
 
 ### Hot config reload
-Once you decide to update in browsers config
+Selenosis supports hot config reload, to do so update you configMap
+```bash
+kubectl edit configmap -n selenosis selenosis-config -o yaml
+```
