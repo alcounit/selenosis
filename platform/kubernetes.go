@@ -292,6 +292,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		CancelFunc: func() {
 			cancel()
 		},
+		StartedAt: pod.CreationTimestamp.Time,
 	}
 
 	return svc, nil
@@ -334,6 +335,7 @@ func (cl *Client) List() ([]*Service, error) {
 				CancelFunc: func() {
 					cl.Delete(podName)
 				},
+				StartedAt: pod.CreationTimestamp.Time,
 			}
 			services = append(services, s)
 		}
