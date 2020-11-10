@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/url"
+	"time"
 
 	"github.com/alcounit/selenosis/selenium"
 	apiv1 "k8s.io/api/core/v1"
@@ -49,6 +50,7 @@ type Service struct {
 	Labels     map[string]string `json:"labels"`
 	OnTimeout  chan struct{}     `json:"-"`
 	CancelFunc func()            `json:"-"`
+	StartedAt  time.Time         `json:"startedAt"`
 }
 
 //Platform ...
