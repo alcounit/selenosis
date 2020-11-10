@@ -346,14 +346,15 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	type Status struct {
-		Browsers map[string][]string `json:"config"`
-		Sessions []*platform.Service `json:"sessions"`
+		Total    int                 `json:"total"`
+		Browsers map[string][]string `json:"config,omitempty"`
+		Sessions []*platform.Service `json:"sessions,omitempty"`
 	}
 
 	type Response struct {
 		Status    int    `json:"status"`
-		Error     error  `json:"err"`
-		Selenosis Status `json:"selenosis"`
+		Error     string `json:"err,omitempty"`
+		Selenosis Status `json:"selenosis,omitempty"`
 	}
 
 	sessions, err := app.client.List()
@@ -362,8 +363,9 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(
 			Response{
 				Status: http.StatusInternalServerError,
-				Error:  err,
+				Error:  fmt.Sprintf("%v", err),
 				Selenosis: Status{
+					Total:    app.sessionLimit,
 					Browsers: app.browsers.GetBrowserVersions(),
 				},
 			},
@@ -371,18 +373,16 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = json.NewEncoder(w).Encode(
+	json.NewEncoder(w).Encode(
 		Response{
 			Status: http.StatusOK,
 			Selenosis: Status{
+				Total:    app.sessionLimit,
 				Browsers: app.browsers.GetBrowserVersions(),
 				Sessions: sessions,
 			},
 		},
 	)
-	if err != nil {
-		w.Write([]byte(fmt.Sprintf("marshal err: %v", err)))
-	}
 	return
 }
 
