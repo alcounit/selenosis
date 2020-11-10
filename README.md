@@ -13,7 +13,7 @@ Usage:
 Flags:
       --port string                          port for selenosis (default ":4444")
       --proxy-port string                    proxy continer port (default "4445")
-      --browsers-config string               browsers config (default "config/browsers.yaml")
+      --browsers-config string               browsers config (default "./config/browsers.yaml")
       --browser-limit int                    active sessions max limit (default 10)
       --namespace string                     kubernetes namespace (default "default")
       --service-name string                  kubernetes service name for browsers (default "selenosis")
@@ -21,7 +21,9 @@ Flags:
       --session-wait-timeout duration        time in seconds that a session will be ready (default 1m0s)
       --session-iddle-timeout duration       time in seconds that a session will iddle (default 5m0s)
       --session-retry-count int              session retry count (default 3)
-      --graceful-shutdown-timeout duration   time in seconds  gracefull shutdown timeout (default 5m0s)
+      --graceful-shutdown-timeout duration   time in seconds  gracefull shutdown timeout (default 30s)
+      --image-pull-secret-name string        secret name to private registry
+      --proxy-image string                   in case you use private registry replace with image from private registry (default "alcounit/seleniferous:latest")
   -h, --help                                 help for selenosis
 
 ```
@@ -112,8 +114,6 @@ opera:
     '71.0':
       image: selenoid/vnc:opera_71.0
 ```
-
-
 Browser name and browser version are taken from Selenium desired capabilities.<br/>
 
 Each browser can have default <b>spec/annotations/labels</b>, they will merged to all browsers listed in the <b>versions</b> section.
@@ -441,3 +441,7 @@ Selenosis supports hot config reload, to do so update you configMap
 ```bash
 kubectl edit configmap -n selenosis selenosis-config -o yaml
 ```
+
+### UI for debug
+Selenosis itself doesn't have ui. If you need such functionality you can use [selenoid-ui](https://github.com/aerokube/selenoid-ui) with special [adapter container](https://github.com/alcounit/adaptee). 
+Deployment steps and minifests you can find in [selenosis-deploy](https://github.com/alcounit/selenosis-deploy) repository.

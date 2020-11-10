@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -287,6 +288,11 @@ func (app *App) HandleVNC() websocket.Handler {
 			"request":    fmt.Sprintf("%s %s", wsconn.Request().Method, wsconn.Request().URL.Path),
 		})
 
+		if !statusOk(sessionID, app.serviceName, app.sidecarPort) {
+			logger.Errorf("container host is unreachable")
+			return
+		}
+
 		host := tools.BuildHostPort(sessionID, app.serviceName, "5900")
 		logger.Infof("vnc request: %s", host)
 
@@ -322,21 +328,26 @@ func (app *App) HandleLogs() websocket.Handler {
 			"request":    fmt.Sprintf("%s %s", wsconn.Request().Method, wsconn.Request().URL.Path),
 		})
 
+		if !statusOk(sessionID, app.serviceName, app.sidecarPort) {
+			logger.Errorf("container host is unreachable")
+			return
+		}
+
 		logger.Infof("stream logs request: %s", fmt.Sprintf("%s.%s", sessionID, app.serviceName))
 
-		r, err := app.client.Logs(wsconn.Request().Context(), sessionID)
+		conn, err := app.client.Logs(wsconn.Request().Context(), sessionID)
 		if err != nil {
 			logger.Errorf("stream logs error: %v", err)
 		}
-		defer r.Close()
+		defer conn.Close()
 		wsconn.PayloadType = websocket.BinaryFrame
 
 		go func() {
-			io.Copy(wsconn, r)
+			io.Copy(wsconn, conn)
 			wsconn.Close()
 			logger.Errorf("stream logs connection closed")
 		}()
-		io.Copy(wsconn, r)
+		io.Copy(wsconn, conn)
 		logger.Errorf("stream logs disconnected")
 	}
 }
@@ -347,6 +358,8 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 
 	type Status struct {
 		Total    int                 `json:"total"`
+		Active   int                 `json:"active"`
+		Pending  int                 `json:"pending"`
 		Browsers map[string][]string `json:"config,omitempty"`
 		Sessions []*platform.Service `json:"sessions,omitempty"`
 	}
@@ -358,6 +371,7 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessions, err := app.client.List()
+
 	if err != nil {
 		app.logger.Errorf("hub status: %v", err)
 		json.NewEncoder(w).Encode(
@@ -373,13 +387,23 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ready := make([]*platform.Service, 0)
+
+	for _, s := range sessions {
+		if s.Ready {
+			ready = append(ready, s)
+		}
+	}
+
 	json.NewEncoder(w).Encode(
 		Response{
 			Status: http.StatusOK,
 			Selenosis: Status{
 				Total:    app.sessionLimit,
+				Active:   len(ready),
+				Pending:  len(sessions) - len(ready),
 				Browsers: app.browsers.GetBrowserVersions(),
-				Sessions: sessions,
+				Sessions: ready,
 			},
 		},
 	)
@@ -392,4 +416,19 @@ func parseImage(image string) (container string) {
 		return "selenoid-browser"
 	}
 	return pref.ReplaceAllString(image, "-")
+}
+
+func statusOk(session, service, port string) bool {
+	u := &url.URL{
+		Scheme: "http",
+		Host:   tools.BuildHostPort(session, service, port),
+		Path:   "/status",
+	}
+
+	resp, err := http.Get(u.String())
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return false
+	}
+
+	return true
 }
