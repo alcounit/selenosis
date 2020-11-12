@@ -50,7 +50,9 @@ type Service struct {
 	Labels     map[string]string `json:"labels"`
 	OnTimeout  chan struct{}     `json:"-"`
 	CancelFunc func()            `json:"-"`
-	StartedAt  time.Time         `json:"startedAt"`
+	Ready      bool              `json:"-"`
+	Started    time.Time         `json:"started"`
+	Uptime     string            `json:"uptime"`
 }
 
 //Platform ...

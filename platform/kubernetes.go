@@ -10,6 +10,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/alcounit/selenosis/tools"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -44,21 +45,25 @@ var (
 
 //ClientConfig ...
 type ClientConfig struct {
-	Namespace        string
-	Service          string
-	ReadinessTimeout time.Duration
-	IddleTimeout     time.Duration
-	ServicePort      string
+	Namespace           string
+	Service             string
+	ServicePort         string
+	ImagePullSecretName string
+	ProxyImage          string
+	ReadinessTimeout    time.Duration
+	IddleTimeout        time.Duration
 }
 
 //Client ...
 type Client struct {
-	ns               string
-	svc              string
-	svcPort          intstr.IntOrString
-	readinessTimeout time.Duration
-	iddleTimeout     time.Duration
-	clientset        v1.CoreV1Interface
+	ns                  string
+	svc                 string
+	svcPort             intstr.IntOrString
+	imagePullSecretName string
+	proxyImage          string
+	readinessTimeout    time.Duration
+	iddleTimeout        time.Duration
+	clientset           v1.CoreV1Interface
 }
 
 //NewClient ...
@@ -75,12 +80,14 @@ func NewClient(c ClientConfig) (Platform, error) {
 	}
 
 	return &Client{
-		ns:               c.Namespace,
-		clientset:        clientset.CoreV1(),
-		svc:              c.Service,
-		svcPort:          intstr.FromString(c.ServicePort),
-		readinessTimeout: c.ReadinessTimeout,
-		iddleTimeout:     c.IddleTimeout,
+		ns:                  c.Namespace,
+		clientset:           clientset.CoreV1(),
+		svc:                 c.Service,
+		svcPort:             intstr.FromString(c.ServicePort),
+		imagePullSecretName: c.ImagePullSecretName,
+		proxyImage:          c.ProxyImage,
+		readinessTimeout:    c.ReadinessTimeout,
+		iddleTimeout:        c.IddleTimeout,
 	}, nil
 
 }
@@ -200,7 +207,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 				},
 				{
 					Name:  "seleniferous",
-					Image: "alcounit/seleniferous:latest",
+					Image: cl.proxyImage,
 					SecurityContext: &apiv1.SecurityContext{
 						Privileged: pointer.BoolPtr(true),
 					},
@@ -220,11 +227,12 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 					},
 				},
 			},
-			NodeSelector:  layout.Template.Spec.NodeSelector,
-			HostAliases:   layout.Template.Spec.HostAliases,
-			RestartPolicy: apiv1.RestartPolicyNever,
-			Affinity:      &layout.Template.Spec.Affinity,
-			DNSConfig:     &layout.Template.Spec.DNSConfig,
+			NodeSelector:     layout.Template.Spec.NodeSelector,
+			HostAliases:      layout.Template.Spec.HostAliases,
+			RestartPolicy:    apiv1.RestartPolicyNever,
+			Affinity:         &layout.Template.Spec.Affinity,
+			DNSConfig:        &layout.Template.Spec.DNSConfig,
+			ImagePullSecrets: getImagePullSecretList(cl.imagePullSecretName),
 		},
 	}
 
@@ -292,7 +300,8 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		CancelFunc: func() {
 			cancel()
 		},
-		StartedAt: pod.CreationTimestamp.Time,
+		Started: pod.CreationTimestamp.Time,
+		Uptime:  tools.TimeElapsed(pod.CreationTimestamp.Time),
 	}
 
 	return svc, nil
@@ -321,24 +330,34 @@ func (cl *Client) List() ([]*Service, error) {
 	var services []*Service
 
 	for _, pod := range pods.Items {
-		if pod.Status.Phase == apiv1.PodRunning {
-			podName := pod.GetName()
-			host := fmt.Sprintf("%s.%s", podName, cl.svc)
+		podName := pod.GetName()
+		host := fmt.Sprintf("%s.%s", podName, cl.svc)
 
-			s := &Service{
-				SessionID: podName,
-				URL: &url.URL{
-					Scheme: "http",
-					Host:   net.JoinHostPort(host, cl.svcPort.StrVal),
-				},
-				Labels: pod.GetLabels(),
-				CancelFunc: func() {
-					cl.Delete(podName)
-				},
-				StartedAt: pod.CreationTimestamp.Time,
-			}
-			services = append(services, s)
+		var ready bool
+		switch pod.Status.Phase {
+		case apiv1.PodRunning:
+			ready = true
+		case apiv1.PodPending:
+			ready = false
+		default:
+			continue
 		}
+
+		s := &Service{
+			SessionID: podName,
+			URL: &url.URL{
+				Scheme: "http",
+				Host:   net.JoinHostPort(host, cl.svcPort.StrVal),
+			},
+			Labels: pod.GetLabels(),
+			CancelFunc: func() {
+				cl.Delete(podName)
+			},
+			Ready:   ready,
+			Started: pod.CreationTimestamp.Time,
+			Uptime:  tools.TimeElapsed(pod.CreationTimestamp.Time),
+		}
+		services = append(services, s)
 	}
 
 	return services, nil
@@ -377,7 +396,17 @@ func getSidecarPorts(p intstr.IntOrString) []apiv1.ContainerPort {
 	return port
 }
 
-//code credits to https://github.com/aerokube/selenoid/blob/master/service/service.go#L97
+func getImagePullSecretList(secret string) []apiv1.LocalObjectReference {
+	refList := make([]apiv1.LocalObjectReference, 0)
+	if secret != "" {
+		ref := apiv1.LocalObjectReference{
+			Name: secret,
+		}
+		refList = append(refList, ref)
+	}
+	return refList
+}
+
 func waitForService(u *url.URL, t time.Duration) error {
 	up := make(chan struct{})
 	done := make(chan struct{})
