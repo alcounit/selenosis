@@ -185,7 +185,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 			Subdomain: cl.svc,
 			Containers: []apiv1.Container{
 				{
-					Name:  layout.SessionID,
+					Name:  "browser",
 					Image: layout.Template.Image,
 					SecurityContext: &apiv1.SecurityContext{
 						Privileged: pointer.BoolPtr(false),
@@ -204,6 +204,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 							MountPath: "/dev/shm",
 						},
 					},
+					ImagePullPolicy: apiv1.PullIfNotPresent,
 				},
 				{
 					Name:  "seleniferous",
@@ -215,6 +216,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 					Command: []string{
 						"/seleniferous", "--listhen-port", cl.svcPort.StrVal, "--proxy-default-path", path.Join(layout.Template.Path, "session"), "--iddle-timeout", cl.iddleTimeout.String(), "--namespace", cl.ns,
 					},
+					ImagePullPolicy: apiv1.PullIfNotPresent,
 				},
 			},
 			Volumes: []apiv1.Volume{
