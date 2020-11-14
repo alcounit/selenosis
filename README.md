@@ -4,7 +4,7 @@ Scalable, stateless selenium hub for Kubernetes cluster.
 ## Overview
 ### Available flags
 ```
-[user@host]# ./selenosis --help
+[user@host]$ ./selenosis --help
 Scallable, stateless selenium grid for Kubernetes cluster
 
 Usage:
@@ -394,8 +394,6 @@ Files and steps required for selenosis deployment available in [selenosis-deploy
  DesiredCapabilities capabilities = new DesiredCapabilities();
 capabilities.setBrowserName("chrome");
 capabilities.setVersion("85.0");
-capabilities.setCapability("enableVNC", true);
-capabilities.setCapability("enableVideo", false);
 
 RemoteWebDriver driver = new RemoteWebDriver(
     URI.create("http://<loadBalancerIP|nodeIP>:<port>/wd/hub").toURL(), 
@@ -408,14 +406,14 @@ from selenium import webdriver
 capabilities = {
     "browserName": "chrome",
     "version": "85.0",
-    "enableVNC": True,
-    "enableVideo": False
 }
 
 driver = webdriver.Remote(
     command_executor="http://<loadBalancerIP|nodeIP>:<port>/wd/hub",
     desired_capabilities=capabilities)
  ```
+
+ Note: you can omit browser version in your desired capabilities, make sure you set defaultVersion property in the config file.
 
 ## Features
 ### Scalability
