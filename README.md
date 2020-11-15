@@ -4,7 +4,7 @@ Scalable, stateless selenium hub for Kubernetes cluster.
 ## Overview
 ### Available flags
 ```
-[user@host]# ./selenosis --help
+[user@host]$ ./selenosis --help
 Scallable, stateless selenium grid for Kubernetes cluster
 
 Usage:
@@ -53,10 +53,10 @@ Basic configuration be like (all fields in this example are mandatory):
         "path": "/",
         "versions": {
             "85.0": {
-                "image": "selenoid/vnc:chrome:85.0"
+                "image": "selenoid/vnc:chrome_85.0"
             },
             "86.0": {
-                "image": "selenoid/vnc:chrome:86.0"
+                "image": "selenoid/vnc:chrome_86.0"
             }
         }
     },
@@ -94,9 +94,9 @@ chrome:
   path: "/"
   versions:
     '85.0':
-      image: selenoid/vnc:chrome:85.0
+      image: selenoid/vnc:chrome_85.0
     '86.0':
-      image: selenoid/vnc:chrome:86.0
+      image: selenoid/vnc:chrome_86.0
 firefox:
   defaultVersion: "82.0"
   path: "/wd/hub"
@@ -177,10 +177,10 @@ Each browser can have default <b>spec/annotations/labels</b>, they will merged t
     },
     "versions": {
       "85.0": {
-        "image": "selenoid/vnc:chrome:85.0"
+        "image": "selenoid/vnc:chrome_85.0"
       },
       "86.0": {
-        "image": "selenoid/vnc:chrome:86.0"
+        "image": "selenoid/vnc:chrome_86.0"
       }
     }
   }
@@ -225,9 +225,9 @@ chrome:
       value: 'true'
   versions:
     '85.0':
-      image: selenoid/vnc:chrome:85.0
+      image: selenoid/vnc:chrome_85.0
     '86.0':
-      image: selenoid/vnc:chrome:86.0
+      image: selenoid/vnc:chrome_86.0
 ```
 You can override default browser <b>spec/annotation/labels</b> by providing individual <b>spec/annotation/labels</b> to browser version
 ``` json
@@ -289,7 +289,7 @@ You can override default browser <b>spec/annotation/labels</b> by providing indi
     },
     "versions": {
       "85.0": {
-        "image": "selenoid/vnc:chrome:85.0",
+        "image": "selenoid/vnc:chrome_85.0",
         "spec": {
           "resources": {
             "requests": {
@@ -304,7 +304,7 @@ You can override default browser <b>spec/annotation/labels</b> by providing indi
         }
       },
       "86.0": {
-        "image": "selenoid/vnc:chrome:86.0",
+        "image": "selenoid/vnc:chrome_86.0",
         "spec": {
           "hostAliases": [
             {
@@ -364,7 +364,7 @@ chrome:
       value: 'true'
   versions:
     '85.0':
-      image: selenoid/vnc:chrome:85.0
+      image: selenoid/vnc:chrome_85.0
       spec:
         resources:
           requests:
@@ -374,7 +374,7 @@ chrome:
             memory: 1500Gi
             cpu: '1'
     '86.0':
-      image: selenoid/vnc:chrome:86.0
+      image: selenoid/vnc:chrome_86.0
       spec:
         hostAliases:
         - ip: 127.0.0.1
@@ -394,8 +394,6 @@ Files and steps required for selenosis deployment available in [selenosis-deploy
  DesiredCapabilities capabilities = new DesiredCapabilities();
 capabilities.setBrowserName("chrome");
 capabilities.setVersion("85.0");
-capabilities.setCapability("enableVNC", true);
-capabilities.setCapability("enableVideo", false);
 
 RemoteWebDriver driver = new RemoteWebDriver(
     URI.create("http://<loadBalancerIP|nodeIP>:<port>/wd/hub").toURL(), 
@@ -408,14 +406,14 @@ from selenium import webdriver
 capabilities = {
     "browserName": "chrome",
     "version": "85.0",
-    "enableVNC": True,
-    "enableVideo": False
 }
 
 driver = webdriver.Remote(
     command_executor="http://<loadBalancerIP|nodeIP>:<port>/wd/hub",
     desired_capabilities=capabilities)
  ```
+
+ Note: you can omit browser version in your desired capabilities, make sure you set defaultVersion property in the config file.
 
 ## Features
 ### Scalability
