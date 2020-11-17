@@ -369,7 +369,7 @@ func (cl *Client) List() ([]*Service, error) {
 //Logs ...
 func (cl *Client) Logs(ctx context.Context, name string) (io.ReadCloser, error) {
 	req := cl.clientset.Pods(cl.ns).GetLogs(name, &apiv1.PodLogOptions{
-		Container:  name,
+		Container:  "browser",
 		Follow:     true,
 		Previous:   false,
 		Timestamps: false,

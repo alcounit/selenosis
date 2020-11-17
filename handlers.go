@@ -338,6 +338,7 @@ func (app *App) HandleLogs() websocket.Handler {
 		conn, err := app.client.Logs(wsconn.Request().Context(), sessionID)
 		if err != nil {
 			logger.Errorf("stream logs error: %v", err)
+			return
 		}
 		defer conn.Close()
 		wsconn.PayloadType = websocket.BinaryFrame

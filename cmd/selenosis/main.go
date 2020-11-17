@@ -21,6 +21,8 @@ import (
 	"golang.org/x/net/websocket"
 )
 
+var buildVersion = "HEAD"
+
 //Command ...
 func command() *cobra.Command {
 
@@ -46,7 +48,7 @@ func command() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 
 			logger := logrus.New()
-			logger.Info("starting selenosis")
+			logger.Infof("starting selenosis %s", buildVersion)
 
 			browsers, err := config.NewBrowsersConfig(cfgFile)
 			if err != nil {
