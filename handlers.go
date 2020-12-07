@@ -307,10 +307,10 @@ func (app *App) HandleVNC() websocket.Handler {
 		go func() {
 			io.Copy(wsconn, conn)
 			wsconn.Close()
-			logger.Errorf("vnc connection closed")
+			logger.Warnf("vnc connection closed")
 		}()
 		io.Copy(conn, wsconn)
-		logger.Errorf("vnc client disconnected")
+		logger.Infof("vnc client disconnected")
 	}
 }
 
@@ -338,6 +338,7 @@ func (app *App) HandleLogs() websocket.Handler {
 		conn, err := app.client.Logs(wsconn.Request().Context(), sessionID)
 		if err != nil {
 			logger.Errorf("stream logs error: %v", err)
+			return
 		}
 		defer conn.Close()
 		wsconn.PayloadType = websocket.BinaryFrame
@@ -345,10 +346,10 @@ func (app *App) HandleLogs() websocket.Handler {
 		go func() {
 			io.Copy(wsconn, conn)
 			wsconn.Close()
-			logger.Errorf("stream logs connection closed")
+			logger.Warnf("stream logs connection closed")
 		}()
 		io.Copy(wsconn, conn)
-		logger.Errorf("stream logs disconnected")
+		logger.Infof("stream logs disconnected")
 	}
 }
 

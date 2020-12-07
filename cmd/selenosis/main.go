@@ -21,6 +21,8 @@ import (
 	"golang.org/x/net/websocket"
 )
 
+var buildVersion = "HEAD"
+
 //Command ...
 func command() *cobra.Command {
 
@@ -46,7 +48,7 @@ func command() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 
 			logger := logrus.New()
-			logger.Info("starting selenosis")
+			logger.Infof("starting selenosis %s", buildVersion)
 
 			browsers, err := config.NewBrowsersConfig(cfgFile)
 			if err != nil {
@@ -134,8 +136,8 @@ func command() *cobra.Command {
 	cmd.Flags().StringVar(&proxyPort, "proxy-port", "4445", "proxy continer port")
 	cmd.Flags().StringVar(&cfgFile, "browsers-config", "./config/browsers.yaml", "browsers config")
 	cmd.Flags().IntVar(&limit, "browser-limit", 10, "active sessions max limit")
-	cmd.Flags().StringVar(&namespace, "namespace", "default", "kubernetes namespace")
-	cmd.Flags().StringVar(&service, "service-name", "selenosis", "kubernetes service name for browsers")
+	cmd.Flags().StringVar(&namespace, "namespace", "selenosis", "kubernetes namespace")
+	cmd.Flags().StringVar(&service, "service-name", "seleniferous", "kubernetes service name for browsers")
 	cmd.Flags().DurationVar(&browserWaitTimeout, "browser-wait-timeout", 30*time.Second, "time in seconds that a browser will be ready")
 	cmd.Flags().DurationVar(&sessionWaitTimeout, "session-wait-timeout", 60*time.Second, "time in seconds that a session will be ready")
 	cmd.Flags().DurationVar(&sessionIddleTimeout, "session-iddle-timeout", 5*time.Minute, "time in seconds that a session will iddle")
