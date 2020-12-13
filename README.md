@@ -443,3 +443,6 @@ kubectl edit configmap -n selenosis selenosis-config -o yaml
 ### UI for debug
 Selenosis itself doesn't have ui. If you need such functionality you can use [selenoid-ui](https://github.com/aerokube/selenoid-ui) with special [adapter container](https://github.com/alcounit/adaptee). 
 Deployment steps and minifests you can find in [selenosis-deploy](https://github.com/alcounit/selenosis-deploy) repository.
+
+<br> 
+Currently this project is under development and can be unstable, in case of any bugs or ideas please report
