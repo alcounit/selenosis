@@ -33,6 +33,31 @@ var (
 	}
 )
 
+//CheckLimit ...
+func (app *App) CheckLimit(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		logger := app.logger.WithFields(logrus.Fields{
+			"request_id": uuid.New(),
+			"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
+		})
+
+		l, err := app.client.List()
+		if err != nil {
+			logger.Errorf("failed to get active session list: %v", err)
+			tools.JSONError(w, "Failed to get browsers list", http.StatusInternalServerError)
+			return
+		}
+
+		if len(l) >= app.sessionLimit {
+			logger.Warnf("active session limit reached: total %d, limit %d", len(l), app.sessionLimit)
+			tools.JSONError(w, "session limit reached", http.StatusInternalServerError)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	}
+}
+
 //HandleSession ...
 func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
@@ -40,20 +65,6 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 		"request_id": uuid.New(),
 		"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
 	})
-
-	l, err := app.client.List()
-	if err != nil {
-		logger.Errorf("failed to get active session list: %v", err)
-		tools.JSONError(w, "Failed to get browsers list", http.StatusInternalServerError)
-		return
-	}
-
-	if len(l) >= app.sessionLimit {
-		logger.Warnf("active session limit reached: total %d, limit %d", len(l), app.sessionLimit)
-		tools.JSONError(w, "session limit reached", http.StatusInternalServerError)
-		return
-	}
-
 	logger.WithField("time_elapsed", tools.TimeElapsed(start)).Info("session")
 
 	body, err := ioutil.ReadAll(r.Body)

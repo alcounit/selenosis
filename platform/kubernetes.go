@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,8 +14,8 @@ import (
 	"github.com/alcounit/selenosis/tools"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
@@ -250,37 +251,26 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		cl.Delete(podName)
 	}
 
-	var status apiv1.PodStatus
-	w, err := cl.clientset.Pods(cl.ns).Watch(context, metav1.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector("metadata.name", podName).String(),
-	})
+	statusFn := func() (bool, error) {
+		pod, err := cl.clientset.Pods(cl.ns).Get(context, podName, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+
+		switch pod.Status.Phase {
+		case apiv1.PodRunning:
+			return true, nil
+		case apiv1.PodFailed, apiv1.PodSucceeded:
+			return false, errors.New("pod not ready")
+		}
+		return false, nil
+	}
+
+	err = wait.PollImmediate(time.Second, cl.iddleTimeout, statusFn)
 
 	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("watch pod: %v", err)
-	}
-
-	func() {
-		for {
-			select {
-			case events, ok := <-w.ResultChan():
-				if !ok {
-					return
-				}
-				pod = events.Object.(*apiv1.Pod)
-				status = pod.Status
-				if pod.Status.Phase != apiv1.PodPending {
-					w.Stop()
-				}
-			case <-time.After(cl.iddleTimeout):
-				w.Stop()
-			}
-		}
-	}()
-
-	if status.Phase != apiv1.PodRunning {
-		cancel()
-		return nil, fmt.Errorf("pod status: %v", status.Phase)
+		return nil, errors.New("pod never entered running phase")
 	}
 
 	host := fmt.Sprintf("%s.%s", podName, cl.svc)
@@ -289,7 +279,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		Host:   net.JoinHostPort(host, browserPorts.selenium.StrVal),
 	}
 
-	if err := waitForService(u, cl.readinessTimeout); err != nil {
+	if err := waitForService(*u, cl.readinessTimeout); err != nil {
 		cancel()
 		return nil, fmt.Errorf("container service is not ready %v", u.String())
 	}
@@ -409,9 +399,10 @@ func getImagePullSecretList(secret string) []apiv1.LocalObjectReference {
 	return refList
 }
 
-func waitForService(u *url.URL, t time.Duration) error {
+func waitForService(u url.URL, t time.Duration) error {
 	up := make(chan struct{})
 	done := make(chan struct{})
+	u.Path = "/status"
 	go func() {
 		for {
 			select {
@@ -419,7 +410,8 @@ func waitForService(u *url.URL, t time.Duration) error {
 				return
 			default:
 			}
-			req, _ := http.NewRequest(http.MethodHead, u.String(), nil)
+
+			req, _ := http.NewRequest(http.MethodGet, u.String(), nil)
 			req.Close = true
 			resp, err := http.DefaultClient.Do(req)
 			if resp != nil {
@@ -436,7 +428,7 @@ func waitForService(u *url.URL, t time.Duration) error {
 	select {
 	case <-time.After(t):
 		close(done)
-		return fmt.Errorf("%s does not respond in %v", u, t)
+		return fmt.Errorf("no responce after %v", t)
 	case <-up:
 	}
 	return nil

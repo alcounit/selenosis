@@ -34,17 +34,17 @@ type App struct {
 }
 
 //New ...
-func New(logger *log.Logger, client platform.Platform, browsers *config.BrowsersConfig, settings Configuration) *App {
+func New(logger *log.Logger, client platform.Platform, browsers *config.BrowsersConfig, cfg Configuration) *App {
 	return &App{
 		logger:              logger,
 		client:              client,
 		browsers:            browsers,
-		selenosisHost:       settings.SelenosisHost,
-		serviceName:         settings.ServiceName,
-		sidecarPort:         settings.SidecarPort,
-		sessionLimit:        settings.SessionLimit,
-		sessionRetryCount:   settings.SessionRetryCount,
-		browserWaitTimeout:  settings.BrowserWaitTimeout,
-		sessionIddleTimeout: settings.SessionIddleTimeout,
+		selenosisHost:       cfg.SelenosisHost,
+		serviceName:         cfg.ServiceName,
+		sidecarPort:         cfg.SidecarPort,
+		sessionLimit:        cfg.SessionLimit,
+		sessionRetryCount:   cfg.SessionRetryCount,
+		browserWaitTimeout:  cfg.BrowserWaitTimeout,
+		sessionIddleTimeout: cfg.SessionIddleTimeout,
 	}
 }
