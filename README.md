@@ -1,3 +1,4 @@
+[![Docker Pulls](https://img.shields.io/docker/pulls/alcounit/selenosis)](https://hub.docker.com/r/alcounit/selenosis/tags?page=1&ordering=last_updated)
 # selenosis
 Scalable, stateless selenium hub for Kubernetes cluster.
 
@@ -430,6 +431,12 @@ spec:
   selector:
 ...
 ```
+<br/>
+by using kubectl
+
+```bash
+kubectl scale deployment selenosis -n selenosis --replicas=3
+```
 
 ### Stateless
 Selenosis doesn't store any session info. All connections to the browsers are automatically assigned via headless service.
@@ -443,3 +450,7 @@ kubectl edit configmap -n selenosis selenosis-config -o yaml
 ### UI for debug
 Selenosis itself doesn't have ui. If you need such functionality you can use [selenoid-ui](https://github.com/aerokube/selenoid-ui) with special [adapter container](https://github.com/alcounit/adaptee). 
 Deployment steps and minifests you can find in [selenosis-deploy](https://github.com/alcounit/selenosis-deploy) repository.
+
+
+<br> 
+This project is under development and can be unstable, in case of any bugs or ideas please report

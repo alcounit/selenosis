@@ -15,10 +15,11 @@ import (
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
+	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/utils/pointer"
 )
 
@@ -251,26 +252,52 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		cl.Delete(podName)
 	}
 
-	statusFn := func() (bool, error) {
-		pod, err := cl.clientset.Pods(cl.ns).Get(context, podName, metav1.GetOptions{})
-		if err != nil {
-			return false, err
-		}
-
-		switch pod.Status.Phase {
-		case apiv1.PodRunning:
-			return true, nil
-		case apiv1.PodFailed, apiv1.PodSucceeded:
-			return false, errors.New("pod not ready")
-		}
-		return false, nil
-	}
-
-	err = wait.PollImmediate(time.Second, cl.iddleTimeout, statusFn)
+	w, err := cl.clientset.Pods(cl.ns).Watch(context, metav1.ListOptions{
+		FieldSelector:  fields.OneTermEqualSelector("metadata.name", podName).String(),
+		TimeoutSeconds: pointer.Int64Ptr(cl.readinessTimeout.Milliseconds()),
+	})
 
 	if err != nil {
+		return nil, fmt.Errorf("failed to watch pod status: %v", err)
+	}
+
+	ready := func() error {
+		defer w.Stop()
+		var watchedPod *apiv1.Pod
+
+		for event := range w.ResultChan() {
+			switch event.Type {
+			case watch.Error:
+				return fmt.Errorf("received error while watching pod: %s",
+					event.Object.GetObjectKind().GroupVersionKind().String())
+			case watch.Deleted, watch.Added, watch.Modified:
+				watchedPod = event.Object.(*apiv1.Pod)
+			default:
+				return fmt.Errorf("received unknown event type %s while watching pod", event.Type)
+			}
+			if event.Type == watch.Deleted {
+				return errors.New("pod was deleted before becoming available")
+			}
+			switch watchedPod.Status.Phase {
+			case apiv1.PodPending:
+				continue
+			case apiv1.PodSucceeded, apiv1.PodFailed:
+				return fmt.Errorf("pod exited early with status %s", watchedPod.Status.Phase)
+			case apiv1.PodRunning:
+				return nil
+			case apiv1.PodUnknown:
+				return errors.New("couldn't obtain pod state")
+			default:
+				return errors.New("pod has unknown status")
+			}
+		}
+		return fmt.Errorf("pod wasn't running")
+	}
+
+	err = ready()
+	if err != nil {
 		cancel()
-		return nil, errors.New("pod never entered running phase")
+		return nil, fmt.Errorf("failed to create pod: %v", err)
 	}
 
 	host := fmt.Sprintf("%s.%s", podName, cl.svc)
