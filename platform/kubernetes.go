@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,11 +14,12 @@ import (
 	"github.com/alcounit/selenosis/tools"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
+	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/utils/pointer"
 )
 
@@ -250,37 +252,52 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		cl.Delete(podName)
 	}
 
-	var status apiv1.PodStatus
 	w, err := cl.clientset.Pods(cl.ns).Watch(context, metav1.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector("metadata.name", podName).String(),
+		FieldSelector:  fields.OneTermEqualSelector("metadata.name", podName).String(),
+		TimeoutSeconds: pointer.Int64Ptr(cl.readinessTimeout.Milliseconds()),
 	})
 
 	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("watch pod: %v", err)
+		return nil, fmt.Errorf("failed to watch pod status: %v", err)
 	}
 
-	func() {
-		for {
-			select {
-			case events, ok := <-w.ResultChan():
-				if !ok {
-					return
-				}
-				pod = events.Object.(*apiv1.Pod)
-				status = pod.Status
-				if pod.Status.Phase != apiv1.PodPending {
-					w.Stop()
-				}
-			case <-time.After(cl.iddleTimeout):
-				w.Stop()
+	ready := func() error {
+		defer w.Stop()
+		var watchedPod *apiv1.Pod
+
+		for event := range w.ResultChan() {
+			switch event.Type {
+			case watch.Error:
+				return fmt.Errorf("received error while watching pod: %s",
+					event.Object.GetObjectKind().GroupVersionKind().String())
+			case watch.Deleted, watch.Added, watch.Modified:
+				watchedPod = event.Object.(*apiv1.Pod)
+			default:
+				return fmt.Errorf("received unknown event type %s while watching pod", event.Type)
+			}
+			if event.Type == watch.Deleted {
+				return errors.New("pod was deleted before becoming available")
+			}
+			switch watchedPod.Status.Phase {
+			case apiv1.PodPending:
+				continue
+			case apiv1.PodSucceeded, apiv1.PodFailed:
+				return fmt.Errorf("pod exited early with status %s", watchedPod.Status.Phase)
+			case apiv1.PodRunning:
+				return nil
+			case apiv1.PodUnknown:
+				return errors.New("couldn't obtain pod state")
+			default:
+				return errors.New("pod has unknown status")
 			}
 		}
-	}()
+		return fmt.Errorf("pod wasn't running")
+	}
 
-	if status.Phase != apiv1.PodRunning {
+	err = ready()
+	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("pod status: %v", status.Phase)
+		return nil, fmt.Errorf("failed to create pod: %v", err)
 	}
 
 	host := fmt.Sprintf("%s.%s", podName, cl.svc)
@@ -289,7 +306,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		Host:   net.JoinHostPort(host, browserPorts.selenium.StrVal),
 	}
 
-	if err := waitForService(u, cl.readinessTimeout); err != nil {
+	if err := waitForService(*u, cl.readinessTimeout); err != nil {
 		cancel()
 		return nil, fmt.Errorf("container service is not ready %v", u.String())
 	}
@@ -409,9 +426,10 @@ func getImagePullSecretList(secret string) []apiv1.LocalObjectReference {
 	return refList
 }
 
-func waitForService(u *url.URL, t time.Duration) error {
+func waitForService(u url.URL, t time.Duration) error {
 	up := make(chan struct{})
 	done := make(chan struct{})
+	u.Path = "/status"
 	go func() {
 		for {
 			select {
@@ -419,7 +437,8 @@ func waitForService(u *url.URL, t time.Duration) error {
 				return
 			default:
 			}
-			req, _ := http.NewRequest(http.MethodHead, u.String(), nil)
+
+			req, _ := http.NewRequest(http.MethodGet, u.String(), nil)
 			req.Close = true
 			resp, err := http.DefaultClient.Do(req)
 			if resp != nil {
@@ -436,7 +455,7 @@ func waitForService(u *url.URL, t time.Duration) error {
 	select {
 	case <-time.After(t):
 		close(done)
-		return fmt.Errorf("%s does not respond in %v", u, t)
+		return fmt.Errorf("no responce after %v", t)
 	case <-up:
 	}
 	return nil

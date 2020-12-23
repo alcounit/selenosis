@@ -1,3 +1,4 @@
+[![Docker Pulls](https://img.shields.io/docker/pulls/alcounit/selenosis)](https://hub.docker.com/r/alcounit/selenosis/tags?page=1&ordering=last_updated)
 # selenosis
 Scalable, stateless selenium hub for Kubernetes cluster.
 
@@ -415,6 +416,57 @@ driver = webdriver.Remote(
 
  Note: you can omit browser version in your desired capabilities, make sure you set defaultVersion property in the config file.
 
+
+## Browser pods are deleted right after start
+Depends on you cluster version in some cases you can face with issue when some browser pods are deleted right after their start and selenosis log will contains lines like this:
+```log
+time="2020-12-21T10:28:20Z" level=error msg="session failed: Post \"http://selenoid-vnc-chrome-87-0-af3177a0-5052-45be-b4e4-9462146e4633.seleniferous:4445/wd/hub/session\": dial tcp: lookup selenoid-vnc-chrome-87-0-af3177a0-5052-45be-b4e4-9462146e4633.seleniferous on 10.96.0.10:53: no such host" request="POST /wd/hub/session" request_id=fa150040-86c1-4224-9e5c-21416b1d9f5c time_elapsed=5.73s
+```
+To fix this issue do the following:
+```bash
+kubectl edit cm coredns -n kube-system
+```
+add following record to your coredns config
+```config
+    selenosis.svc.cluster.local:53 {
+        errors
+        kubernetes cluster.local {
+          namespaces selenosis
+        }
+    }
+```
+this option will turn off dns caching for selenosis namespace, resulting config update should be as following:
+```yaml
+apiVersion: v1
+data:
+  Corefile: |
+    selenosis.svc.cluster.local:53 {
+        errors
+        kubernetes cluster.local {
+          namespaces selenosis
+        }
+    }
+    .:53 {
+        errors
+        health
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+          pods insecure
+          fallthrough in-addr.arpa ip6.arpa
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf
+        cache 30
+        loop
+        reload
+        loadbalance
+        import custom/*.override
+    }
+    import custom/*.server
+kind: ConfigMap
+...
+```
+
 ## Features
 ### Scalability
 By default selenosis starts with 2 replica sets. To change it, edit selenosis deployment file: <b>03-selenosis.yaml</b>
@@ -430,6 +482,12 @@ spec:
   selector:
 ...
 ```
+<br/>
+by using kubectl
+
+```bash
+kubectl scale deployment selenosis -n selenosis --replicas=3
+```
 
 ### Stateless
 Selenosis doesn't store any session info. All connections to the browsers are automatically assigned via headless service.
@@ -444,5 +502,4 @@ kubectl edit configmap -n selenosis selenosis-config -o yaml
 Selenosis itself doesn't have ui. If you need such functionality you can use [selenoid-ui](https://github.com/aerokube/selenoid-ui) with special [adapter container](https://github.com/alcounit/adaptee). 
 Deployment steps and minifests you can find in [selenosis-deploy](https://github.com/alcounit/selenosis-deploy) repository.
 
-<br> 
 Currently this project is under development and can be unstable, in case of any bugs or ideas please report

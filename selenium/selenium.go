@@ -28,8 +28,6 @@ type Capabilities struct {
 	DNSServers            []string          `json:"dnsServers,omitempty"`
 	Labels                map[string]string `json:"labels,omitempty"`
 	SessionTimeout        string            `json:"sessionTimeout,omitempty"`
-	S3KeyPattern          string            `json:"s3KeyPattern,omitempty"`
-	ExtensionCapabilities *Capabilities     `json:"selenoid:options,omitempty"`
 }
 
 //ValidateCapabilities ...

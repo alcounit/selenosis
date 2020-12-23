@@ -58,11 +58,6 @@ func TestNewSessionRequestErrors(t *testing.T) {
 			respCode: http.StatusBadRequest,
 			respBody: `{"code":400,"value":{"message":"unknown browser name amigo"}}`,
 		},
-		"Verify new session call with unknown browser version in request": {
-			body:     bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"0.00"}]}}`)),
-			respCode: http.StatusBadRequest,
-			respBody: `{"code":400,"value":{"message":"unknown browser version 0.00"}}`,
-		},
 	}
 
 	for name, test := range tests {
