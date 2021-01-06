@@ -16,9 +16,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
-	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/utils/pointer"
 )
@@ -65,7 +66,7 @@ type Client struct {
 	proxyImage          string
 	readinessTimeout    time.Duration
 	iddleTimeout        time.Duration
-	clientset           v1.CoreV1Interface
+	clientset           *kubernetes.Clientset
 }
 
 //NewClient ...
@@ -83,7 +84,7 @@ func NewClient(c ClientConfig) (Platform, error) {
 
 	return &Client{
 		ns:                  c.Namespace,
-		clientset:           clientset.CoreV1(),
+		clientset:           clientset,
 		svc:                 c.Service,
 		svcPort:             intstr.FromString(c.ServicePort),
 		imagePullSecretName: c.ImagePullSecretName,
@@ -109,7 +110,7 @@ func NewDefaultClient(namespace string) (Platform, error) {
 
 	return &Client{
 		ns:        namespace,
-		clientset: clientset.CoreV1(),
+		clientset: clientset,
 	}, nil
 
 }
@@ -241,7 +242,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 	}
 
 	context := context.Background()
-	pod, err := cl.clientset.Pods(cl.ns).Create(context, pod, metav1.CreateOptions{})
+	pod, err := cl.clientset.CoreV1().Pods(cl.ns).Create(context, pod, metav1.CreateOptions{})
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pod %v", err)
@@ -252,7 +253,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		cl.Delete(podName)
 	}
 
-	w, err := cl.clientset.Pods(cl.ns).Watch(context, metav1.ListOptions{
+	w, err := cl.clientset.CoreV1().Pods(cl.ns).Watch(context, metav1.ListOptions{
 		FieldSelector:  fields.OneTermEqualSelector("metadata.name", podName).String(),
 		TimeoutSeconds: pointer.Int64Ptr(cl.readinessTimeout.Milliseconds()),
 	})
@@ -261,7 +262,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		return nil, fmt.Errorf("failed to watch pod status: %v", err)
 	}
 
-	ready := func() error {
+	statusFn := func() error {
 		defer w.Stop()
 		var watchedPod *apiv1.Pod
 
@@ -294,8 +295,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		return fmt.Errorf("pod wasn't running")
 	}
 
-	err = ready()
-	if err != nil {
+	if statusFn() != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create pod: %v", err)
 	}
@@ -330,7 +330,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 func (cl *Client) Delete(name string) error {
 	context := context.Background()
 
-	return cl.clientset.Pods(cl.ns).Delete(context, name, metav1.DeleteOptions{
+	return cl.clientset.CoreV1().Pods(cl.ns).Delete(context, name, metav1.DeleteOptions{
 		GracePeriodSeconds: pointer.Int64Ptr(15),
 	})
 }
@@ -338,7 +338,7 @@ func (cl *Client) Delete(name string) error {
 //List ...
 func (cl *Client) List() ([]*Service, error) {
 	context := context.Background()
-	pods, err := cl.clientset.Pods(cl.ns).List(context, metav1.ListOptions{
+	pods, err := cl.clientset.CoreV1().Pods(cl.ns).List(context, metav1.ListOptions{
 		LabelSelector: "type=browser",
 	})
 
@@ -352,17 +352,17 @@ func (cl *Client) List() ([]*Service, error) {
 		podName := pod.GetName()
 		host := fmt.Sprintf("%s.%s", podName, cl.svc)
 
-		var ready bool
+		var status ServiceStatus
 		switch pod.Status.Phase {
 		case apiv1.PodRunning:
-			ready = true
+			status = Running
 		case apiv1.PodPending:
-			ready = false
+			status = Pending
 		default:
-			continue
+			status = Unknown
 		}
 
-		s := &Service{
+		service := &Service{
 			SessionID: podName,
 			URL: &url.URL{
 				Scheme: "http",
@@ -372,20 +372,89 @@ func (cl *Client) List() ([]*Service, error) {
 			CancelFunc: func() {
 				cl.Delete(podName)
 			},
-			Ready:   ready,
+			Status:  status,
 			Started: pod.CreationTimestamp.Time,
 			Uptime:  tools.TimeElapsed(pod.CreationTimestamp.Time),
 		}
-		services = append(services, s)
+		services = append(services, service)
 	}
 
 	return services, nil
 
 }
 
+//Watch ...
+func (cl Client) Watch() <-chan Event {
+	ch := make(chan Event)
+
+	convert := func(obj interface{}) *Service {
+		pod := obj.(*apiv1.Pod)
+		podName := pod.GetName()
+		host := fmt.Sprintf("%s.%s", podName, cl.svc)
+
+		var status ServiceStatus
+		switch pod.Status.Phase {
+		case apiv1.PodRunning:
+			status = Running
+		case apiv1.PodPending:
+			status = Pending
+		default:
+			status = Unknown
+		}
+
+		return &Service{
+			SessionID: podName,
+			URL: &url.URL{
+				Scheme: "http",
+				Host:   net.JoinHostPort(host, cl.svcPort.StrVal),
+			},
+			Labels: pod.GetLabels(),
+			CancelFunc: func() {
+				cl.Delete(podName)
+			},
+			Status:  status,
+			Started: pod.CreationTimestamp.Time,
+			Uptime:  tools.TimeElapsed(pod.CreationTimestamp.Time),
+		}
+	}
+
+	namespace := informers.WithNamespace(cl.ns)
+	labels := informers.WithTweakListOptions(func(list *metav1.ListOptions) {
+		list.LabelSelector = "type=browser"
+	})
+
+	sharedIformer := informers.NewSharedInformerFactoryWithOptions(cl.clientset, 30*time.Second, namespace, labels)
+	sharedIformer.Core().V1().Pods().Informer().AddEventHandler(
+		cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				ch <- Event{
+					Type:    Added,
+					Service: convert(obj),
+				}
+			},
+			UpdateFunc: func(old interface{}, new interface{}) {
+				ch <- Event{
+					Type:    Updated,
+					Service: convert(new),
+				}
+			},
+			DeleteFunc: func(obj interface{}) {
+				ch <- Event{
+					Type:    Deleted,
+					Service: convert(obj),
+				}
+			},
+		},
+	)
+
+	var neverStop <-chan struct{} = make(chan struct{})
+	sharedIformer.Start(neverStop)
+	return ch
+}
+
 //Logs ...
 func (cl *Client) Logs(ctx context.Context, name string) (io.ReadCloser, error) {
-	req := cl.clientset.Pods(cl.ns).GetLogs(name, &apiv1.PodLogOptions{
+	req := cl.clientset.CoreV1().Pods(cl.ns).GetLogs(name, &apiv1.PodLogOptions{
 		Container:  "browser",
 		Follow:     true,
 		Previous:   false,
