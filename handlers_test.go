@@ -569,6 +569,11 @@ func (p *PlatformMock) List() ([]*platform.Service, error) {
 	return nil, nil
 }
 
+func (p *PlatformMock) Watch() <-chan platform.Event {
+	ch := make(chan platform.Event)
+	return ch
+}
+
 func (p *PlatformMock) Logs(ctx context.Context, name string) (io.ReadCloser, error) {
 	return nil, nil
 }

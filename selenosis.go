@@ -5,6 +5,7 @@ import (
 
 	"github.com/alcounit/selenosis/config"
 	"github.com/alcounit/selenosis/platform"
+	"github.com/alcounit/selenosis/storage"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -31,10 +32,42 @@ type App struct {
 	sessionRetryCount   int
 	sessionIddleTimeout time.Duration
 	browserWaitTimeout  time.Duration
+	stats               *storage.Storage
 }
 
 //New ...
 func New(logger *log.Logger, client platform.Platform, browsers *config.BrowsersConfig, cfg Configuration) *App {
+
+	storage := storage.New()
+
+	services, err := client.List()
+	if err != nil {
+		logger.Errorf("failed to get list of active pods: %v", err)
+	}
+
+	for _, service := range services {
+		storage.Put(service.SessionID, service)
+	}
+
+	ch := client.Watch()
+	go func() {
+		for {
+			select {
+			case event := <-ch:
+				switch event.Type {
+				case platform.Added:
+					storage.Put(event.Service.SessionID, event.Service)
+				case platform.Updated:
+					storage.Put(event.Service.SessionID, event.Service)
+				case platform.Deleted:
+					storage.Delete(event.Service.SessionID)
+				}
+			default:
+				break
+			}
+		}
+	}()
+
 	return &App{
 		logger:              logger,
 		client:              client,
@@ -46,5 +79,6 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 		sessionRetryCount:   cfg.SessionRetryCount,
 		browserWaitTimeout:  cfg.BrowserWaitTimeout,
 		sessionIddleTimeout: cfg.SessionIddleTimeout,
+		stats:               storage,
 	}
 }

@@ -50,15 +50,38 @@ type Service struct {
 	Labels     map[string]string `json:"labels"`
 	OnTimeout  chan struct{}     `json:"-"`
 	CancelFunc func()            `json:"-"`
-	Ready      bool              `json:"-"`
+	Status     ServiceStatus     `json:"-"`
 	Started    time.Time         `json:"started"`
 	Uptime     string            `json:"uptime"`
 }
+
+//ServiceStatus ...
+type ServiceStatus string
+
+//Event ...
+type Event struct {
+	Type    EventType
+	Service *Service
+}
+
+//EventType ...
+type EventType string
+
+const (
+	Added   EventType = "Added"
+	Updated EventType = "Updated"
+	Deleted EventType = "Deleted"
+
+	Pending ServiceStatus = "Pending"
+	Running ServiceStatus = "Running"
+	Unknown ServiceStatus = "Unknown"
+)
 
 //Platform ...
 type Platform interface {
 	Create(*ServiceSpec) (*Service, error)
 	Delete(string) error
 	List() ([]*Service, error)
+	Watch() <-chan Event
 	Logs(context.Context, string) (io.ReadCloser, error)
 }

@@ -41,15 +41,10 @@ func (app *App) CheckLimit(next http.HandlerFunc) http.HandlerFunc {
 			"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
 		})
 
-		l, err := app.client.List()
-		if err != nil {
-			logger.Errorf("failed to get active session list: %v", err)
-			tools.JSONError(w, "Failed to get browsers list", http.StatusInternalServerError)
-			return
-		}
+		total := app.stats.Len()
 
-		if len(l) >= app.sessionLimit {
-			logger.Warnf("active session limit reached: total %d, limit %d", len(l), app.sessionLimit)
+		if total >= app.sessionLimit {
+			logger.Warnf("active session limit reached: total %d, limit %d", total, app.sessionLimit)
 			tools.JSONError(w, "session limit reached", http.StatusInternalServerError)
 			return
 		}
@@ -243,21 +238,18 @@ func (app *App) HadleHubStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 
-	l, err := app.client.List()
-	if err != nil {
-		logger.Errorf("hub status: %v", err)
-		tools.JSONError(w, "Failed to get browsers list", http.StatusInternalServerError)
-	}
+	active, pending := getSessionStats(app.stats.List())
+	total := len(active) + len(pending)
 
 	json.NewEncoder(w).Encode(
 		map[string]interface{}{
 			"value": map[string]interface{}{
 				"message": "selenosis up and running",
-				"ready":   len(l),
+				"ready":   total,
 			},
 		})
 
-	logger.WithField("active_sessions", len(l)).Infof("hub status")
+	logger.WithField("active_sessions", total).Infof("hub status")
 }
 
 //HandleReverseProxy ...
@@ -373,7 +365,7 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		Active   int                 `json:"active"`
 		Pending  int                 `json:"pending"`
 		Browsers map[string][]string `json:"config,omitempty"`
-		Sessions []*platform.Service `json:"sessions,omitempty"`
+		Sessions []platform.Service  `json:"sessions,omitempty"`
 	}
 
 	type Response struct {
@@ -382,40 +374,17 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		Selenosis Status `json:"selenosis,omitempty"`
 	}
 
-	sessions, err := app.client.List()
-
-	if err != nil {
-		app.logger.Errorf("hub status: %v", err)
-		json.NewEncoder(w).Encode(
-			Response{
-				Status: http.StatusInternalServerError,
-				Error:  fmt.Sprintf("%v", err),
-				Selenosis: Status{
-					Total:    app.sessionLimit,
-					Browsers: app.browsers.GetBrowserVersions(),
-				},
-			},
-		)
-		return
-	}
-
-	ready := make([]*platform.Service, 0)
-
-	for _, s := range sessions {
-		if s.Ready {
-			ready = append(ready, s)
-		}
-	}
+	active, pending := getSessionStats(app.stats.List())
 
 	json.NewEncoder(w).Encode(
 		Response{
 			Status: http.StatusOK,
 			Selenosis: Status{
 				Total:    app.sessionLimit,
-				Active:   len(ready),
-				Pending:  len(sessions) - len(ready),
+				Active:   len(active),
+				Pending:  len(pending),
 				Browsers: app.browsers.GetBrowserVersions(),
-				Sessions: ready,
+				Sessions: active,
 			},
 		},
 	)
@@ -443,4 +412,19 @@ func statusOk(session, service, port string) bool {
 	}
 
 	return true
+}
+
+func getSessionStats(sessions []platform.Service) (active []platform.Service, pending []platform.Service) {
+	active = make([]platform.Service, 0)
+	pending = make([]platform.Service, 0)
+
+	for _, s := range sessions {
+		switch s.Status {
+		case platform.Running:
+			active = append(active, s)
+		case platform.Pending:
+			pending = append(pending, s)
+		}
+	}
+	return
 }
