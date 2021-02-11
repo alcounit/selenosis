@@ -20,7 +20,7 @@ Flags:
       --service-name string                  kubernetes service name for browsers (default "seleniferous")
       --browser-wait-timeout duration        time in seconds that a browser will be ready (default 30s)
       --session-wait-timeout duration        time in seconds that a session will be ready (default 1m0s)
-      --session-iddle-timeout duration       time in seconds that a session will iddle (default 5m0s)
+      --session-idle-timeout duration        time in seconds that a session will idle (default 5m0s)
       --session-retry-count int              session retry count (default 3)
       --graceful-shutdown-timeout duration   time in seconds  gracefull shutdown timeout (default 30s)
       --image-pull-secret-name string        secret name to private registry

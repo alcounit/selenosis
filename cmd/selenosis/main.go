@@ -38,7 +38,7 @@ func command() *cobra.Command {
 		limit               int
 		browserWaitTimeout  time.Duration
 		sessionWaitTimeout  time.Duration
-		sessionIddleTimeout time.Duration
+		sessionIdleTimeout  time.Duration
 		shutdownTimeout     time.Duration
 	)
 
@@ -65,7 +65,7 @@ func command() *cobra.Command {
 				Namespace:           namespace,
 				Service:             service,
 				ReadinessTimeout:    browserWaitTimeout,
-				IddleTimeout:        sessionIddleTimeout,
+				IdleTimeout:         sessionIdleTimeout,
 				ServicePort:         proxyPort,
 				ImagePullSecretName: imagePullSecretName,
 				ProxyImage:          proxyImage,
@@ -80,19 +80,19 @@ func command() *cobra.Command {
 			hostname, _ := os.Hostname()
 
 			app := selenosis.New(logger, client, browsers, selenosis.Configuration{
-				SelenosisHost:       hostname,
-				ServiceName:         service,
-				SidecarPort:         proxyPort,
-				SessionLimit:        limit,
-				SessionRetryCount:   sessionRetryCount,
-				BrowserWaitTimeout:  browserWaitTimeout,
-				SessionIddleTimeout: sessionIddleTimeout,
+				SelenosisHost:      hostname,
+				ServiceName:        service,
+				SidecarPort:        proxyPort,
+				SessionLimit:       limit,
+				SessionRetryCount:  sessionRetryCount,
+				BrowserWaitTimeout: browserWaitTimeout,
+				SessionIdleTimeout: sessionIdleTimeout,
 			})
 
 			router := mux.NewRouter()
 			router.HandleFunc("/wd/hub/session", app.CheckLimit(app.HandleSession)).Methods(http.MethodPost)
 			router.PathPrefix("/wd/hub/session/{sessionId}").HandlerFunc(app.HandleProxy)
-			router.HandleFunc("/wd/hub/status", app.HadleHubStatus).Methods(http.MethodGet)
+			router.HandleFunc("/wd/hub/status", app.HandleHubStatus).Methods(http.MethodGet)
 			router.PathPrefix("/vnc/{sessionId}").Handler(websocket.Handler(app.HandleVNC()))
 			router.PathPrefix("/logs/{sessionId}").Handler(websocket.Handler(app.HandleLogs()))
 			router.PathPrefix("/devtools/{sessionId}").HandlerFunc(app.HandleReverseProxy)
@@ -140,7 +140,7 @@ func command() *cobra.Command {
 	cmd.Flags().StringVar(&service, "service-name", "seleniferous", "kubernetes service name for browsers")
 	cmd.Flags().DurationVar(&browserWaitTimeout, "browser-wait-timeout", 30*time.Second, "time in seconds that a browser will be ready")
 	cmd.Flags().DurationVar(&sessionWaitTimeout, "session-wait-timeout", 60*time.Second, "time in seconds that a session will be ready")
-	cmd.Flags().DurationVar(&sessionIddleTimeout, "session-iddle-timeout", 5*time.Minute, "time in seconds that a session will iddle")
+	cmd.Flags().DurationVar(&sessionIdleTimeout, "session-idle-timeout", 5*time.Minute, "time in seconds that a session will idle")
 	cmd.Flags().IntVar(&sessionRetryCount, "session-retry-count", 3, "session retry count")
 	cmd.Flags().DurationVar(&shutdownTimeout, "graceful-shutdown-timeout", 30*time.Second, "time in seconds  gracefull shutdown timeout")
 	cmd.Flags().StringVar(&imagePullSecretName, "image-pull-secret-name", "", "secret name to private registry")

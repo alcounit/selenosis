@@ -530,12 +530,12 @@ func initApp(p *PlatformMock) *App {
 	logger := &logrus.Logger{}
 	client := NewPlatformMock(p)
 	conf := Configuration{
-		SelenosisHost:       "hostname",
-		ServiceName:         "selenosis",
-		SidecarPort:         "4445",
-		BrowserWaitTimeout:  300 * time.Millisecond,
-		SessionIddleTimeout: 600 * time.Millisecond,
-		SessionRetryCount:   2,
+		SelenosisHost:      "hostname",
+		ServiceName:        "selenosis",
+		SidecarPort:        "4445",
+		BrowserWaitTimeout: 300 * time.Millisecond,
+		SessionIdleTimeout: 600 * time.Millisecond,
+		SessionRetryCount:  2,
 	}
 	browsersConfig, _ := config.NewBrowsersConfig("config/browsers.yaml")
 

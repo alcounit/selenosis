@@ -204,9 +204,14 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 //HandleProxy ...
 func (app *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	sessionID := vars["sessionId"]
-	host := tools.BuildHostPort(sessionID, app.serviceName, app.sidecarPort)
+	sessionID, ok := vars["sessionId"]
+	if !ok {
+		app.logger.Error("session id not found")
+		tools.JSONError(w, "session id not found", http.StatusBadRequest)
+		return
+	}
 
+	host := tools.BuildHostPort(sessionID, app.serviceName, app.sidecarPort)
 	logger := app.logger.WithFields(logrus.Fields{
 		"request_id": uuid.New(),
 		"session_id": sessionID,
@@ -229,8 +234,8 @@ func (app *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 
 }
 
-//HadleHubStatus ...
-func (app *App) HadleHubStatus(w http.ResponseWriter, r *http.Request) {
+//HandleHubStatus ...
+func (app *App) HandleHubStatus(w http.ResponseWriter, r *http.Request) {
 	logger := app.logger.WithFields(logrus.Fields{
 		"request_id": uuid.New(),
 		"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
@@ -255,7 +260,13 @@ func (app *App) HadleHubStatus(w http.ResponseWriter, r *http.Request) {
 //HandleReverseProxy ...
 func (app *App) HandleReverseProxy(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	sessionID := vars["sessionId"]
+	sessionID, ok := vars["sessionId"]
+	if !ok {
+		app.logger.Error("session id not found")
+		tools.JSONError(w, "session id not found", http.StatusBadRequest)
+		return
+	}
+
 	fragments := strings.Split(r.URL.Path, "/")
 	logger := app.logger.WithFields(logrus.Fields{
 		"request_id": uuid.New(),
@@ -283,7 +294,11 @@ func (app *App) HandleVNC() websocket.Handler {
 		defer wsconn.Close()
 
 		vars := mux.Vars(wsconn.Request())
-		sessionID := vars["sessionId"]
+		sessionID, ok := vars["sessionId"]
+		if !ok {
+			app.logger.Error("session id not found")
+			return
+		}
 
 		logger := app.logger.WithFields(logrus.Fields{
 			"request_id": uuid.New(),
@@ -323,7 +338,11 @@ func (app *App) HandleLogs() websocket.Handler {
 		defer wsconn.Close()
 
 		vars := mux.Vars(wsconn.Request())
-		sessionID := vars["sessionId"]
+		sessionID, ok := vars["sessionId"]
+		if !ok {
+			app.logger.Error("session id not found")
+			return
+		}
 
 		logger := app.logger.WithFields(logrus.Fields{
 			"request_id": uuid.New(),

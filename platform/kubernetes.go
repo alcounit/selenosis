@@ -54,7 +54,7 @@ type ClientConfig struct {
 	ImagePullSecretName string
 	ProxyImage          string
 	ReadinessTimeout    time.Duration
-	IddleTimeout        time.Duration
+	IdleTimeout         time.Duration
 }
 
 //Client ...
@@ -65,7 +65,7 @@ type Client struct {
 	imagePullSecretName string
 	proxyImage          string
 	readinessTimeout    time.Duration
-	iddleTimeout        time.Duration
+	idleTimeout         time.Duration
 	clientset           *kubernetes.Clientset
 }
 
@@ -90,7 +90,7 @@ func NewClient(c ClientConfig) (Platform, error) {
 		imagePullSecretName: c.ImagePullSecretName,
 		proxyImage:          c.ProxyImage,
 		readinessTimeout:    c.ReadinessTimeout,
-		iddleTimeout:        c.IddleTimeout,
+		idleTimeout:         c.IdleTimeout,
 	}, nil
 
 }
@@ -217,7 +217,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 					},
 					Ports: getSidecarPorts(cl.svcPort),
 					Command: []string{
-						"/seleniferous", "--listhen-port", cl.svcPort.StrVal, "--proxy-default-path", path.Join(layout.Template.Path, "session"), "--iddle-timeout", cl.iddleTimeout.String(), "--namespace", cl.ns,
+						"/seleniferous", "--listhen-port", cl.svcPort.StrVal, "--proxy-default-path", path.Join(layout.Template.Path, "session"), "--idle-timeout", cl.idleTimeout.String(), "--namespace", cl.ns,
 					},
 					ImagePullPolicy: apiv1.PullIfNotPresent,
 				},
