@@ -11,28 +11,28 @@ import (
 
 //Configuration ....
 type Configuration struct {
-	SelenosisHost       string
-	ServiceName         string
-	SidecarPort         string
-	SessionLimit        int
-	SessionRetryCount   int
-	BrowserWaitTimeout  time.Duration
-	SessionIddleTimeout time.Duration
+	SelenosisHost      string
+	ServiceName        string
+	SidecarPort        string
+	SessionLimit       int
+	SessionRetryCount  int
+	BrowserWaitTimeout time.Duration
+	SessionIdleTimeout time.Duration
 }
 
 //App ...
 type App struct {
-	logger              *log.Logger
-	client              platform.Platform
-	browsers            *config.BrowsersConfig
-	selenosisHost       string
-	serviceName         string
-	sidecarPort         string
-	sessionLimit        int
-	sessionRetryCount   int
-	sessionIddleTimeout time.Duration
-	browserWaitTimeout  time.Duration
-	stats               *storage.Storage
+	logger             *log.Logger
+	client             platform.Platform
+	browsers           *config.BrowsersConfig
+	selenosisHost      string
+	serviceName        string
+	sidecarPort        string
+	sessionLimit       int
+	sessionRetryCount  int
+	sessionIdleTimeout time.Duration
+	browserWaitTimeout time.Duration
+	stats              *storage.Storage
 }
 
 //New ...
@@ -69,16 +69,16 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 	}()
 
 	return &App{
-		logger:              logger,
-		client:              client,
-		browsers:            browsers,
-		selenosisHost:       cfg.SelenosisHost,
-		serviceName:         cfg.ServiceName,
-		sidecarPort:         cfg.SidecarPort,
-		sessionLimit:        cfg.SessionLimit,
-		sessionRetryCount:   cfg.SessionRetryCount,
-		browserWaitTimeout:  cfg.BrowserWaitTimeout,
-		sessionIddleTimeout: cfg.SessionIddleTimeout,
-		stats:               storage,
+		logger:             logger,
+		client:             client,
+		browsers:           browsers,
+		selenosisHost:      cfg.SelenosisHost,
+		serviceName:        cfg.ServiceName,
+		sidecarPort:        cfg.SidecarPort,
+		sessionLimit:       cfg.SessionLimit,
+		sessionRetryCount:  cfg.SessionRetryCount,
+		browserWaitTimeout: cfg.BrowserWaitTimeout,
+		sessionIdleTimeout: cfg.SessionIdleTimeout,
+		stats:              storage,
 	}
 }
