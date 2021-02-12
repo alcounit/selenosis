@@ -20,7 +20,7 @@ type Meta struct {
 type Spec struct {
 	Resources    apiv1.ResourceRequirements `yaml:"resources,omitempty" json:"resources,omitempty"`
 	HostAliases  []apiv1.HostAlias          `yaml:"hostAliases,omitempty" json:"hostAliases,omitempty"`
-	EnvVars      []apiv1.EnvVar             `yaml:"envVars,omitempty" json:"envVars,omitempty"`
+	EnvVars      []apiv1.EnvVar             `yaml:"env,omitempty" json:"env,omitempty"`
 	NodeSelector map[string]string          `yaml:"nodeSelector,omitempty" json:"nodeSelector,omitempty"`
 	Affinity     apiv1.Affinity             `yaml:"affinity,omitempty" json:"affinity,omitempty"`
 	DNSConfig    apiv1.PodDNSConfig         `yaml:"dnsConfig,omitempty" json:"dnsConfig,omitempty"`

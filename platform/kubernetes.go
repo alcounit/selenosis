@@ -126,18 +126,17 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		defaults.session:        layout.SessionID,
 	}
 
-	envVar := func(name, value string) (i int, b bool) {
+	envVar := func(name string) (i int, b bool) {
 		for i, slice := range layout.Template.Spec.EnvVars {
 			if slice.Name == name {
-				slice.Value = value
 				return i, true
 			}
 		}
 		return -1, false
 	}
 
+	i, b := envVar(defaults.screenResolution)
 	if layout.RequestedCapabilities.ScreenResolution != "" {
-		i, b := envVar(defaults.screenResolution, layout.RequestedCapabilities.ScreenResolution)
 		if !b {
 			layout.Template.Spec.EnvVars = append(layout.Template.Spec.EnvVars,
 				apiv1.EnvVar{Name: defaults.screenResolution,
@@ -146,27 +145,34 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaults.screenResolution, Value: layout.RequestedCapabilities.ScreenResolution}
 		}
 		labels[defaults.screenResolution] = layout.RequestedCapabilities.ScreenResolution
+	} else {
+		if b {
+			labels[defaults.screenResolution] = layout.Template.Spec.EnvVars[i].Value
+		}
 	}
 
+	i, b = envVar(defaults.enableVNC)
 	if layout.RequestedCapabilities.VNC {
 		vnc := fmt.Sprintf("%v", layout.RequestedCapabilities.VNC)
-		i, b := envVar(defaults.enableVNC, vnc)
 		if !b {
 			layout.Template.Spec.EnvVars = append(layout.Template.Spec.EnvVars, apiv1.EnvVar{Name: defaults.enableVNC, Value: vnc})
 		} else {
 			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaults.enableVNC, Value: vnc}
 		}
 		labels[defaults.enableVNC] = vnc
+	} else {
+		if b {
+			labels[defaults.enableVNC] = layout.Template.Spec.EnvVars[i].Value
+		}
 	}
 
 	if layout.RequestedCapabilities.TimeZone != "" {
-		i, b := envVar(defaults.timeZone, layout.RequestedCapabilities.TimeZone)
+		i, b := envVar(defaults.timeZone)
 		if !b {
 			layout.Template.Spec.EnvVars = append(layout.Template.Spec.EnvVars, apiv1.EnvVar{Name: defaults.timeZone, Value: layout.RequestedCapabilities.TimeZone})
 		} else {
 			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaults.timeZone, Value: layout.RequestedCapabilities.TimeZone}
 		}
-		labels[defaults.timeZone] = layout.RequestedCapabilities.TimeZone
 	}
 
 	if layout.Template.Meta.Labels == nil {
