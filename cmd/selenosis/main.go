@@ -87,6 +87,7 @@ func command() *cobra.Command {
 				SessionRetryCount:  sessionRetryCount,
 				BrowserWaitTimeout: browserWaitTimeout,
 				SessionIdleTimeout: sessionIdleTimeout,
+				BuildVersion:       buildVersion,
 			})
 
 			router := mux.NewRouter()

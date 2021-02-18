@@ -18,6 +18,7 @@ type Configuration struct {
 	SessionRetryCount  int
 	BrowserWaitTimeout time.Duration
 	SessionIdleTimeout time.Duration
+	BuildVersion       string
 }
 
 //App ...
@@ -32,6 +33,7 @@ type App struct {
 	sessionRetryCount  int
 	sessionIdleTimeout time.Duration
 	browserWaitTimeout time.Duration
+	buildVersion       string
 	stats              *storage.Storage
 }
 
@@ -79,6 +81,7 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 		sessionRetryCount:  cfg.SessionRetryCount,
 		browserWaitTimeout: cfg.BrowserWaitTimeout,
 		sessionIdleTimeout: cfg.SessionIdleTimeout,
+		buildVersion:       cfg.BuildVersion,
 		stats:              storage,
 	}
 }
