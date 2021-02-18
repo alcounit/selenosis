@@ -32,6 +32,7 @@ type BrowserSpec struct {
 	BrowserVersion string `yaml:"-" json:"-"`
 	Image          string `yaml:"image" json:"image"`
 	Path           string `yaml:"path" json:"path"`
+	Privileged     bool   `yaml:"privileged" json:"privileged"`
 	Meta           Meta   `yaml:"meta" json:"meta"`
 	Spec           Spec   `yaml:"spec" json:"spec"`
 }

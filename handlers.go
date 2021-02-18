@@ -389,6 +389,7 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 
 	type Response struct {
 		Status    int    `json:"status"`
+		Version   string `json:"version"`
 		Error     string `json:"err,omitempty"`
 		Selenosis Status `json:"selenosis,omitempty"`
 	}
@@ -397,7 +398,8 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 
 	json.NewEncoder(w).Encode(
 		Response{
-			Status: http.StatusOK,
+			Status:  http.StatusOK,
+			Version: app.buildVersion,
 			Selenosis: Status{
 				Total:    app.sessionLimit,
 				Active:   len(active),

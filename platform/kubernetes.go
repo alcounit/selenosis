@@ -197,7 +197,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 					Name:  "browser",
 					Image: layout.Template.Image,
 					SecurityContext: &apiv1.SecurityContext{
-						Privileged: pointer.BoolPtr(false),
+						Privileged: &layout.Template.Privileged,
 						Capabilities: &apiv1.Capabilities{
 							Add: []apiv1.Capability{
 								"SYS_ADMIN",
@@ -218,9 +218,6 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 				{
 					Name:  "seleniferous",
 					Image: cl.proxyImage,
-					SecurityContext: &apiv1.SecurityContext{
-						Privileged: pointer.BoolPtr(true),
-					},
 					Ports: getSidecarPorts(cl.svcPort),
 					Command: []string{
 						"/seleniferous", "--listhen-port", cl.svcPort.StrVal, "--proxy-default-path", path.Join(layout.Template.Path, "session"), "--idle-timeout", cl.idleTimeout.String(), "--namespace", cl.ns,
@@ -504,7 +501,6 @@ func getImagePullSecretList(secret string) []apiv1.LocalObjectReference {
 func waitForService(u url.URL, t time.Duration) error {
 	up := make(chan struct{})
 	done := make(chan struct{})
-	u.Path = "/status"
 	go func() {
 		for {
 			select {
@@ -513,7 +509,7 @@ func waitForService(u url.URL, t time.Duration) error {
 			default:
 			}
 
-			req, _ := http.NewRequest(http.MethodGet, u.String(), nil)
+			req, _ := http.NewRequest(http.MethodHead, u.String(), nil)
 			req.Close = true
 			resp, err := http.DefaultClient.Do(req)
 			if resp != nil {
