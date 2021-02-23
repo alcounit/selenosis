@@ -24,6 +24,7 @@ type Spec struct {
 	NodeSelector map[string]string          `yaml:"nodeSelector,omitempty" json:"nodeSelector,omitempty"`
 	Affinity     apiv1.Affinity             `yaml:"affinity,omitempty" json:"affinity,omitempty"`
 	DNSConfig    apiv1.PodDNSConfig         `yaml:"dnsConfig,omitempty" json:"dnsConfig,omitempty"`
+	Tolerations  []apiv1.Toleration         `yaml:"tolerations,omitempty" json:"tolerations,omitempty"`
 }
 
 //BrowserSpec describes settings for Service

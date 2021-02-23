@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/alcounit/selenosis/platform"
+	"github.com/alcounit/selenosis/tools"
 )
 
 //Storage ...
@@ -41,6 +42,7 @@ func (s *Storage) List() []platform.Service {
 
 	for _, p := range s.sessions {
 		c := *p
+		c.Uptime = tools.TimeElapsed(c.Started)
 		l = append(l, c)
 	}
 	return l
