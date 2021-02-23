@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -12,11 +13,13 @@ import (
 
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
-	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/utils/pointer"
 )
 
@@ -44,21 +47,25 @@ var (
 
 //ClientConfig ...
 type ClientConfig struct {
-	Namespace        string
-	Service          string
-	ReadinessTimeout time.Duration
-	IddleTimeout     time.Duration
-	ServicePort      string
+	Namespace           string
+	Service             string
+	ServicePort         string
+	ImagePullSecretName string
+	ProxyImage          string
+	ReadinessTimeout    time.Duration
+	IdleTimeout         time.Duration
 }
 
 //Client ...
 type Client struct {
-	ns               string
-	svc              string
-	svcPort          intstr.IntOrString
-	readinessTimeout time.Duration
-	iddleTimeout     time.Duration
-	clientset        v1.CoreV1Interface
+	ns                  string
+	svc                 string
+	svcPort             intstr.IntOrString
+	imagePullSecretName string
+	proxyImage          string
+	readinessTimeout    time.Duration
+	idleTimeout         time.Duration
+	clientset           *kubernetes.Clientset
 }
 
 //NewClient ...
@@ -75,12 +82,14 @@ func NewClient(c ClientConfig) (Platform, error) {
 	}
 
 	return &Client{
-		ns:               c.Namespace,
-		clientset:        clientset.CoreV1(),
-		svc:              c.Service,
-		svcPort:          intstr.FromString(c.ServicePort),
-		readinessTimeout: c.ReadinessTimeout,
-		iddleTimeout:     c.IddleTimeout,
+		ns:                  c.Namespace,
+		clientset:           clientset,
+		svc:                 c.Service,
+		svcPort:             intstr.FromString(c.ServicePort),
+		imagePullSecretName: c.ImagePullSecretName,
+		proxyImage:          c.ProxyImage,
+		readinessTimeout:    c.ReadinessTimeout,
+		idleTimeout:         c.IdleTimeout,
 	}, nil
 
 }
@@ -100,7 +109,7 @@ func NewDefaultClient(namespace string) (Platform, error) {
 
 	return &Client{
 		ns:        namespace,
-		clientset: clientset.CoreV1(),
+		clientset: clientset,
 	}, nil
 
 }
@@ -116,18 +125,17 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		defaults.session:        layout.SessionID,
 	}
 
-	envVar := func(name, value string) (i int, b bool) {
+	envVar := func(name string) (i int, b bool) {
 		for i, slice := range layout.Template.Spec.EnvVars {
 			if slice.Name == name {
-				slice.Value = value
 				return i, true
 			}
 		}
 		return -1, false
 	}
 
+	i, b := envVar(defaults.screenResolution)
 	if layout.RequestedCapabilities.ScreenResolution != "" {
-		i, b := envVar(defaults.screenResolution, layout.RequestedCapabilities.ScreenResolution)
 		if !b {
 			layout.Template.Spec.EnvVars = append(layout.Template.Spec.EnvVars,
 				apiv1.EnvVar{Name: defaults.screenResolution,
@@ -136,27 +144,34 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaults.screenResolution, Value: layout.RequestedCapabilities.ScreenResolution}
 		}
 		labels[defaults.screenResolution] = layout.RequestedCapabilities.ScreenResolution
+	} else {
+		if b {
+			labels[defaults.screenResolution] = layout.Template.Spec.EnvVars[i].Value
+		}
 	}
 
+	i, b = envVar(defaults.enableVNC)
 	if layout.RequestedCapabilities.VNC {
 		vnc := fmt.Sprintf("%v", layout.RequestedCapabilities.VNC)
-		i, b := envVar(defaults.enableVNC, vnc)
 		if !b {
 			layout.Template.Spec.EnvVars = append(layout.Template.Spec.EnvVars, apiv1.EnvVar{Name: defaults.enableVNC, Value: vnc})
 		} else {
 			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaults.enableVNC, Value: vnc}
 		}
 		labels[defaults.enableVNC] = vnc
+	} else {
+		if b {
+			labels[defaults.enableVNC] = layout.Template.Spec.EnvVars[i].Value
+		}
 	}
 
 	if layout.RequestedCapabilities.TimeZone != "" {
-		i, b := envVar(defaults.timeZone, layout.RequestedCapabilities.TimeZone)
+		i, b := envVar(defaults.timeZone)
 		if !b {
 			layout.Template.Spec.EnvVars = append(layout.Template.Spec.EnvVars, apiv1.EnvVar{Name: defaults.timeZone, Value: layout.RequestedCapabilities.TimeZone})
 		} else {
 			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaults.timeZone, Value: layout.RequestedCapabilities.TimeZone}
 		}
-		labels[defaults.timeZone] = layout.RequestedCapabilities.TimeZone
 	}
 
 	if layout.Template.Meta.Labels == nil {
@@ -178,10 +193,10 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 			Subdomain: cl.svc,
 			Containers: []apiv1.Container{
 				{
-					Name:  layout.SessionID,
+					Name:  "browser",
 					Image: layout.Template.Image,
 					SecurityContext: &apiv1.SecurityContext{
-						Privileged: pointer.BoolPtr(false),
+						Privileged: &layout.Template.Privileged,
 						Capabilities: &apiv1.Capabilities{
 							Add: []apiv1.Capability{
 								"SYS_ADMIN",
@@ -197,17 +212,16 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 							MountPath: "/dev/shm",
 						},
 					},
+					ImagePullPolicy: apiv1.PullIfNotPresent,
 				},
 				{
 					Name:  "seleniferous",
-					Image: "alcounit/seleniferous:latest",
-					SecurityContext: &apiv1.SecurityContext{
-						Privileged: pointer.BoolPtr(true),
-					},
+					Image: cl.proxyImage,
 					Ports: getSidecarPorts(cl.svcPort),
 					Command: []string{
-						"/seleniferous", "--listhen-port", cl.svcPort.StrVal, "--proxy-default-path", path.Join(layout.Template.Path, "session"), "--iddle-timeout", cl.iddleTimeout.String(), "--namespace", cl.ns,
+						"/seleniferous", "--listhen-port", cl.svcPort.StrVal, "--proxy-default-path", path.Join(layout.Template.Path, "session"), "--idle-timeout", cl.idleTimeout.String(), "--namespace", cl.ns,
 					},
+					ImagePullPolicy: apiv1.PullIfNotPresent,
 				},
 			},
 			Volumes: []apiv1.Volume{
@@ -220,16 +234,18 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 					},
 				},
 			},
-			NodeSelector:  layout.Template.Spec.NodeSelector,
-			HostAliases:   layout.Template.Spec.HostAliases,
-			RestartPolicy: apiv1.RestartPolicyNever,
-			Affinity:      &layout.Template.Spec.Affinity,
-			DNSConfig:     &layout.Template.Spec.DNSConfig,
+			NodeSelector:     layout.Template.Spec.NodeSelector,
+			HostAliases:      layout.Template.Spec.HostAliases,
+			RestartPolicy:    apiv1.RestartPolicyNever,
+			Affinity:         &layout.Template.Spec.Affinity,
+			DNSConfig:        &layout.Template.Spec.DNSConfig,
+			Tolerations:      layout.Template.Spec.Tolerations,
+			ImagePullSecrets: getImagePullSecretList(cl.imagePullSecretName),
 		},
 	}
 
 	context := context.Background()
-	pod, err := cl.clientset.Pods(cl.ns).Create(context, pod, metav1.CreateOptions{})
+	pod, err := cl.clientset.CoreV1().Pods(cl.ns).Create(context, pod, metav1.CreateOptions{})
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pod %v", err)
@@ -240,37 +256,51 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		cl.Delete(podName)
 	}
 
-	var status apiv1.PodStatus
-	w, err := cl.clientset.Pods(cl.ns).Watch(context, metav1.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector("metadata.name", podName).String(),
+	w, err := cl.clientset.CoreV1().Pods(cl.ns).Watch(context, metav1.ListOptions{
+		FieldSelector:  fields.OneTermEqualSelector("metadata.name", podName).String(),
+		TimeoutSeconds: pointer.Int64Ptr(cl.readinessTimeout.Milliseconds()),
 	})
 
 	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("watch pod: %v", err)
+		return nil, fmt.Errorf("failed to watch pod status: %v", err)
 	}
 
-	func() {
-		for {
-			select {
-			case events, ok := <-w.ResultChan():
-				if !ok {
-					return
-				}
-				pod = events.Object.(*apiv1.Pod)
-				status = pod.Status
-				if pod.Status.Phase != apiv1.PodPending {
-					w.Stop()
-				}
-			case <-time.After(cl.iddleTimeout):
-				w.Stop()
+	statusFn := func() error {
+		defer w.Stop()
+		var watchedPod *apiv1.Pod
+
+		for event := range w.ResultChan() {
+			switch event.Type {
+			case watch.Error:
+				return fmt.Errorf("received error while watching pod: %s",
+					event.Object.GetObjectKind().GroupVersionKind().String())
+			case watch.Deleted, watch.Added, watch.Modified:
+				watchedPod = event.Object.(*apiv1.Pod)
+			default:
+				return fmt.Errorf("received unknown event type %s while watching pod", event.Type)
+			}
+			if event.Type == watch.Deleted {
+				return errors.New("pod was deleted before becoming available")
+			}
+			switch watchedPod.Status.Phase {
+			case apiv1.PodPending:
+				continue
+			case apiv1.PodSucceeded, apiv1.PodFailed:
+				return fmt.Errorf("pod exited early with status %s", watchedPod.Status.Phase)
+			case apiv1.PodRunning:
+				return nil
+			case apiv1.PodUnknown:
+				return errors.New("couldn't obtain pod state")
+			default:
+				return errors.New("pod has unknown status")
 			}
 		}
-	}()
+		return fmt.Errorf("pod wasn't running")
+	}
 
-	if status.Phase != apiv1.PodRunning {
+	if statusFn() != nil {
 		cancel()
-		return nil, fmt.Errorf("pod status: %v", status.Phase)
+		return nil, fmt.Errorf("failed to create pod: %v", err)
 	}
 
 	host := fmt.Sprintf("%s.%s", podName, cl.svc)
@@ -279,7 +309,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		Host:   net.JoinHostPort(host, browserPorts.selenium.StrVal),
 	}
 
-	if err := waitForService(u, cl.readinessTimeout); err != nil {
+	if err := waitForService(*u, cl.readinessTimeout); err != nil {
 		cancel()
 		return nil, fmt.Errorf("container service is not ready %v", u.String())
 	}
@@ -292,6 +322,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		CancelFunc: func() {
 			cancel()
 		},
+		Started: pod.CreationTimestamp.Time,
 	}
 
 	return svc, nil
@@ -301,7 +332,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 func (cl *Client) Delete(name string) error {
 	context := context.Background()
 
-	return cl.clientset.Pods(cl.ns).Delete(context, name, metav1.DeleteOptions{
+	return cl.clientset.CoreV1().Pods(cl.ns).Delete(context, name, metav1.DeleteOptions{
 		GracePeriodSeconds: pointer.Int64Ptr(15),
 	})
 }
@@ -309,7 +340,7 @@ func (cl *Client) Delete(name string) error {
 //List ...
 func (cl *Client) List() ([]*Service, error) {
 	context := context.Background()
-	pods, err := cl.clientset.Pods(cl.ns).List(context, metav1.ListOptions{
+	pods, err := cl.clientset.CoreV1().Pods(cl.ns).List(context, metav1.ListOptions{
 		LabelSelector: "type=browser",
 	})
 
@@ -320,33 +351,111 @@ func (cl *Client) List() ([]*Service, error) {
 	var services []*Service
 
 	for _, pod := range pods.Items {
-		if pod.Status.Phase == apiv1.PodRunning {
-			podName := pod.GetName()
-			host := fmt.Sprintf("%s.%s", podName, cl.svc)
+		podName := pod.GetName()
+		host := fmt.Sprintf("%s.%s", podName, cl.svc)
 
-			s := &Service{
-				SessionID: podName,
-				URL: &url.URL{
-					Scheme: "http",
-					Host:   net.JoinHostPort(host, cl.svcPort.StrVal),
-				},
-				Labels: pod.GetLabels(),
-				CancelFunc: func() {
-					cl.Delete(podName)
-				},
-			}
-			services = append(services, s)
+		var status ServiceStatus
+		switch pod.Status.Phase {
+		case apiv1.PodRunning:
+			status = Running
+		case apiv1.PodPending:
+			status = Pending
+		default:
+			status = Unknown
 		}
+
+		service := &Service{
+			SessionID: podName,
+			URL: &url.URL{
+				Scheme: "http",
+				Host:   net.JoinHostPort(host, cl.svcPort.StrVal),
+			},
+			Labels: pod.GetLabels(),
+			CancelFunc: func() {
+				cl.Delete(podName)
+			},
+			Status:  status,
+			Started: pod.CreationTimestamp.Time,
+		}
+		services = append(services, service)
 	}
 
 	return services, nil
 
 }
 
+//Watch ...
+func (cl Client) Watch() <-chan Event {
+	ch := make(chan Event)
+
+	convert := func(obj interface{}) *Service {
+		pod := obj.(*apiv1.Pod)
+		podName := pod.GetName()
+		host := fmt.Sprintf("%s.%s", podName, cl.svc)
+
+		var status ServiceStatus
+		switch pod.Status.Phase {
+		case apiv1.PodRunning:
+			status = Running
+		case apiv1.PodPending:
+			status = Pending
+		default:
+			status = Unknown
+		}
+
+		return &Service{
+			SessionID: podName,
+			URL: &url.URL{
+				Scheme: "http",
+				Host:   net.JoinHostPort(host, cl.svcPort.StrVal),
+			},
+			Labels: pod.GetLabels(),
+			CancelFunc: func() {
+				cl.Delete(podName)
+			},
+			Status:  status,
+			Started: pod.CreationTimestamp.Time,
+		}
+	}
+
+	namespace := informers.WithNamespace(cl.ns)
+	labels := informers.WithTweakListOptions(func(list *metav1.ListOptions) {
+		list.LabelSelector = "type=browser"
+	})
+
+	sharedIformer := informers.NewSharedInformerFactoryWithOptions(cl.clientset, 30*time.Second, namespace, labels)
+	sharedIformer.Core().V1().Pods().Informer().AddEventHandler(
+		cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				ch <- Event{
+					Type:    Added,
+					Service: convert(obj),
+				}
+			},
+			UpdateFunc: func(old interface{}, new interface{}) {
+				ch <- Event{
+					Type:    Updated,
+					Service: convert(new),
+				}
+			},
+			DeleteFunc: func(obj interface{}) {
+				ch <- Event{
+					Type:    Deleted,
+					Service: convert(obj),
+				}
+			},
+		},
+	)
+
+	var neverStop <-chan struct{} = make(chan struct{})
+	sharedIformer.Start(neverStop)
+	return ch
+}
+
 //Logs ...
 func (cl *Client) Logs(ctx context.Context, name string) (io.ReadCloser, error) {
-	req := cl.clientset.Pods(cl.ns).GetLogs(name, &apiv1.PodLogOptions{
-		Container:  name,
+	req := cl.clientset.CoreV1().Pods(cl.ns).GetLogs(name, &apiv1.PodLogOptions{
+		Container:  "browser",
 		Follow:     true,
 		Previous:   false,
 		Timestamps: false,
@@ -375,8 +484,18 @@ func getSidecarPorts(p intstr.IntOrString) []apiv1.ContainerPort {
 	return port
 }
 
-//code credits to https://github.com/aerokube/selenoid/blob/master/service/service.go#L97
-func waitForService(u *url.URL, t time.Duration) error {
+func getImagePullSecretList(secret string) []apiv1.LocalObjectReference {
+	refList := make([]apiv1.LocalObjectReference, 0)
+	if secret != "" {
+		ref := apiv1.LocalObjectReference{
+			Name: secret,
+		}
+		refList = append(refList, ref)
+	}
+	return refList
+}
+
+func waitForService(u url.URL, t time.Duration) error {
 	up := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
@@ -386,6 +505,7 @@ func waitForService(u *url.URL, t time.Duration) error {
 				return
 			default:
 			}
+
 			req, _ := http.NewRequest(http.MethodHead, u.String(), nil)
 			req.Close = true
 			resp, err := http.DefaultClient.Do(req)
@@ -403,7 +523,7 @@ func waitForService(u *url.URL, t time.Duration) error {
 	select {
 	case <-time.After(t):
 		close(done)
-		return fmt.Errorf("%s does not respond in %v", u, t)
+		return fmt.Errorf("no responce after %v", t)
 	case <-up:
 	}
 	return nil

@@ -1,5 +1,7 @@
 FROM golang:alpine AS builder
 
+ARG BUILD_VERSION
+
 RUN apk add --quiet --no-cache build-base git
 
 WORKDIR /src
@@ -13,7 +15,7 @@ RUN go mod download
 ADD . .
 
 RUN cd cmd/selenosis && \
-    go install -ldflags="-linkmode external -extldflags '-static' -s -w"
+    go install -ldflags="-X main.buildVersion=$BUILD_VERSION -linkmode external -extldflags '-static' -s -w"
 
 
 FROM scratch

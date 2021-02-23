@@ -21,6 +21,8 @@ import (
 	"golang.org/x/net/websocket"
 )
 
+var buildVersion = "HEAD"
+
 //Command ...
 func command() *cobra.Command {
 
@@ -30,11 +32,13 @@ func command() *cobra.Command {
 		proxyPort           string
 		namespace           string
 		service             string
+		imagePullSecretName string
+		proxyImage          string
 		sessionRetryCount   int
 		limit               int
 		browserWaitTimeout  time.Duration
 		sessionWaitTimeout  time.Duration
-		sessionIddleTimeout time.Duration
+		sessionIdleTimeout  time.Duration
 		shutdownTimeout     time.Duration
 	)
 
@@ -44,7 +48,7 @@ func command() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 
 			logger := logrus.New()
-			logger.Info("starting selenosis")
+			logger.Infof("starting selenosis %s", buildVersion)
 
 			browsers, err := config.NewBrowsersConfig(cfgFile)
 			if err != nil {
@@ -58,11 +62,13 @@ func command() *cobra.Command {
 			logger.Info("config watcher started")
 
 			client, err := platform.NewClient(platform.ClientConfig{
-				Namespace:        namespace,
-				Service:          service,
-				ReadinessTimeout: browserWaitTimeout,
-				IddleTimeout:     sessionIddleTimeout,
-				ServicePort:      proxyPort,
+				Namespace:           namespace,
+				Service:             service,
+				ReadinessTimeout:    browserWaitTimeout,
+				IdleTimeout:         sessionIdleTimeout,
+				ServicePort:         proxyPort,
+				ImagePullSecretName: imagePullSecretName,
+				ProxyImage:          proxyImage,
 			})
 
 			if err != nil {
@@ -74,19 +80,20 @@ func command() *cobra.Command {
 			hostname, _ := os.Hostname()
 
 			app := selenosis.New(logger, client, browsers, selenosis.Configuration{
-				SelenosisHost:       hostname,
-				ServiceName:         service,
-				SidecarPort:         proxyPort,
-				SessionLimit:        limit,
-				SessionRetryCount:   sessionRetryCount,
-				BrowserWaitTimeout:  browserWaitTimeout,
-				SessionIddleTimeout: sessionIddleTimeout,
+				SelenosisHost:      hostname,
+				ServiceName:        service,
+				SidecarPort:        proxyPort,
+				SessionLimit:       limit,
+				SessionRetryCount:  sessionRetryCount,
+				BrowserWaitTimeout: browserWaitTimeout,
+				SessionIdleTimeout: sessionIdleTimeout,
+				BuildVersion:       buildVersion,
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/wd/hub/session", app.HandleSession).Methods(http.MethodPost)
+			router.HandleFunc("/wd/hub/session", app.CheckLimit(app.HandleSession)).Methods(http.MethodPost)
 			router.PathPrefix("/wd/hub/session/{sessionId}").HandlerFunc(app.HandleProxy)
-			router.HandleFunc("/wd/hub/status", app.HadleHubStatus).Methods(http.MethodGet)
+			router.HandleFunc("/wd/hub/status", app.HandleHubStatus).Methods(http.MethodGet)
 			router.PathPrefix("/vnc/{sessionId}").Handler(websocket.Handler(app.HandleVNC()))
 			router.PathPrefix("/logs/{sessionId}").Handler(websocket.Handler(app.HandleLogs()))
 			router.PathPrefix("/devtools/{sessionId}").HandlerFunc(app.HandleReverseProxy)
@@ -130,13 +137,15 @@ func command() *cobra.Command {
 	cmd.Flags().StringVar(&proxyPort, "proxy-port", "4445", "proxy continer port")
 	cmd.Flags().StringVar(&cfgFile, "browsers-config", "./config/browsers.yaml", "browsers config")
 	cmd.Flags().IntVar(&limit, "browser-limit", 10, "active sessions max limit")
-	cmd.Flags().StringVar(&namespace, "namespace", "default", "kubernetes namespace")
-	cmd.Flags().StringVar(&service, "service-name", "selenosis", "kubernetes service name for browsers")
+	cmd.Flags().StringVar(&namespace, "namespace", "selenosis", "kubernetes namespace")
+	cmd.Flags().StringVar(&service, "service-name", "seleniferous", "kubernetes service name for browsers")
 	cmd.Flags().DurationVar(&browserWaitTimeout, "browser-wait-timeout", 30*time.Second, "time in seconds that a browser will be ready")
 	cmd.Flags().DurationVar(&sessionWaitTimeout, "session-wait-timeout", 60*time.Second, "time in seconds that a session will be ready")
-	cmd.Flags().DurationVar(&sessionIddleTimeout, "session-iddle-timeout", 5*time.Minute, "time in seconds that a session will iddle")
+	cmd.Flags().DurationVar(&sessionIdleTimeout, "session-idle-timeout", 5*time.Minute, "time in seconds that a session will idle")
 	cmd.Flags().IntVar(&sessionRetryCount, "session-retry-count", 3, "session retry count")
 	cmd.Flags().DurationVar(&shutdownTimeout, "graceful-shutdown-timeout", 30*time.Second, "time in seconds  gracefull shutdown timeout")
+	cmd.Flags().StringVar(&imagePullSecretName, "image-pull-secret-name", "", "secret name to private registry")
+	cmd.Flags().StringVar(&proxyImage, "proxy-image", "alcounit/seleniferous:latest", "in case you use private registry replace with image from private registry")
 	cmd.Flags().SortFlags = false
 
 	return cmd

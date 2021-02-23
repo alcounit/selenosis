@@ -58,11 +58,6 @@ func TestNewSessionRequestErrors(t *testing.T) {
 			respCode: http.StatusBadRequest,
 			respBody: `{"code":400,"value":{"message":"unknown browser name amigo"}}`,
 		},
-		"Verify new session call with unknown browser version in request": {
-			body:     bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"0.00"}]}}`)),
-			respCode: http.StatusBadRequest,
-			respBody: `{"code":400,"value":{"message":"unknown browser version 0.00"}}`,
-		},
 	}
 
 	for name, test := range tests {
@@ -535,12 +530,12 @@ func initApp(p *PlatformMock) *App {
 	logger := &logrus.Logger{}
 	client := NewPlatformMock(p)
 	conf := Configuration{
-		SelenosisHost:       "hostname",
-		ServiceName:         "selenosis",
-		SidecarPort:         "4445",
-		BrowserWaitTimeout:  300 * time.Millisecond,
-		SessionIddleTimeout: 600 * time.Millisecond,
-		SessionRetryCount:   2,
+		SelenosisHost:      "hostname",
+		ServiceName:        "selenosis",
+		SidecarPort:        "4445",
+		BrowserWaitTimeout: 300 * time.Millisecond,
+		SessionIdleTimeout: 600 * time.Millisecond,
+		SessionRetryCount:  2,
 	}
 	browsersConfig, _ := config.NewBrowsersConfig("config/browsers.yaml")
 
@@ -572,6 +567,11 @@ func (p *PlatformMock) Delete(string) error {
 }
 func (p *PlatformMock) List() ([]*platform.Service, error) {
 	return nil, nil
+}
+
+func (p *PlatformMock) Watch() <-chan platform.Event {
+	ch := make(chan platform.Event)
+	return ch
 }
 
 func (p *PlatformMock) Logs(ctx context.Context, name string) (io.ReadCloser, error) {

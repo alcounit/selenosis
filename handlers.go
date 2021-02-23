@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -32,6 +33,26 @@ var (
 	}
 )
 
+//CheckLimit ...
+func (app *App) CheckLimit(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		logger := app.logger.WithFields(logrus.Fields{
+			"request_id": uuid.New(),
+			"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
+		})
+
+		total := app.stats.Len()
+
+		if total >= app.sessionLimit {
+			logger.Warnf("active session limit reached: total %d, limit %d", total, app.sessionLimit)
+			tools.JSONError(w, "session limit reached", http.StatusInternalServerError)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	}
+}
+
 //HandleSession ...
 func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
@@ -39,20 +60,6 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 		"request_id": uuid.New(),
 		"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
 	})
-
-	l, err := app.client.List()
-	if err != nil {
-		logger.Errorf("failed to get active session list: %v", err)
-		tools.JSONError(w, "Failed to get browsers list", http.StatusInternalServerError)
-		return
-	}
-
-	if len(l) >= app.sessionLimit {
-		logger.Warnf("active session limit reached: total %d, limit %d", len(l), app.sessionLimit)
-		tools.JSONError(w, "session limit reached", http.StatusInternalServerError)
-		return
-	}
-
 	logger.WithField("time_elapsed", tools.TimeElapsed(start)).Info("session")
 
 	body, err := ioutil.ReadAll(r.Body)
@@ -197,9 +204,14 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 //HandleProxy ...
 func (app *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	sessionID := vars["sessionId"]
-	host := tools.BuildHostPort(sessionID, app.serviceName, app.sidecarPort)
+	sessionID, ok := vars["sessionId"]
+	if !ok {
+		app.logger.Error("session id not found")
+		tools.JSONError(w, "session id not found", http.StatusBadRequest)
+		return
+	}
 
+	host := tools.BuildHostPort(sessionID, app.serviceName, app.sidecarPort)
 	logger := app.logger.WithFields(logrus.Fields{
 		"request_id": uuid.New(),
 		"session_id": sessionID,
@@ -222,8 +234,8 @@ func (app *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 
 }
 
-//HadleHubStatus ...
-func (app *App) HadleHubStatus(w http.ResponseWriter, r *http.Request) {
+//HandleHubStatus ...
+func (app *App) HandleHubStatus(w http.ResponseWriter, r *http.Request) {
 	logger := app.logger.WithFields(logrus.Fields{
 		"request_id": uuid.New(),
 		"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
@@ -231,27 +243,30 @@ func (app *App) HadleHubStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 
-	l, err := app.client.List()
-	if err != nil {
-		logger.Errorf("hub status: %v", err)
-		tools.JSONError(w, "Failed to get browsers list", http.StatusInternalServerError)
-	}
+	active, pending := getSessionStats(app.stats.List())
+	total := len(active) + len(pending)
 
 	json.NewEncoder(w).Encode(
 		map[string]interface{}{
 			"value": map[string]interface{}{
 				"message": "selenosis up and running",
-				"ready":   len(l),
+				"ready":   total,
 			},
 		})
 
-	logger.WithField("active_sessions", len(l)).Infof("hub status")
+	logger.WithField("active_sessions", total).Infof("hub status")
 }
 
 //HandleReverseProxy ...
 func (app *App) HandleReverseProxy(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	sessionID := vars["sessionId"]
+	sessionID, ok := vars["sessionId"]
+	if !ok {
+		app.logger.Error("session id not found")
+		tools.JSONError(w, "session id not found", http.StatusBadRequest)
+		return
+	}
+
 	fragments := strings.Split(r.URL.Path, "/")
 	logger := app.logger.WithFields(logrus.Fields{
 		"request_id": uuid.New(),
@@ -279,13 +294,22 @@ func (app *App) HandleVNC() websocket.Handler {
 		defer wsconn.Close()
 
 		vars := mux.Vars(wsconn.Request())
-		sessionID := vars["sessionId"]
+		sessionID, ok := vars["sessionId"]
+		if !ok {
+			app.logger.Error("session id not found")
+			return
+		}
 
 		logger := app.logger.WithFields(logrus.Fields{
 			"request_id": uuid.New(),
 			"session_id": sessionID,
 			"request":    fmt.Sprintf("%s %s", wsconn.Request().Method, wsconn.Request().URL.Path),
 		})
+
+		if !statusOk(sessionID, app.serviceName, app.sidecarPort) {
+			logger.Errorf("container host is unreachable")
+			return
+		}
 
 		host := tools.BuildHostPort(sessionID, app.serviceName, "5900")
 		logger.Infof("vnc request: %s", host)
@@ -301,10 +325,10 @@ func (app *App) HandleVNC() websocket.Handler {
 		go func() {
 			io.Copy(wsconn, conn)
 			wsconn.Close()
-			logger.Errorf("vnc connection closed")
+			logger.Warnf("vnc connection closed")
 		}()
 		io.Copy(conn, wsconn)
-		logger.Errorf("vnc client disconnected")
+		logger.Infof("vnc client disconnected")
 	}
 }
 
@@ -314,7 +338,11 @@ func (app *App) HandleLogs() websocket.Handler {
 		defer wsconn.Close()
 
 		vars := mux.Vars(wsconn.Request())
-		sessionID := vars["sessionId"]
+		sessionID, ok := vars["sessionId"]
+		if !ok {
+			app.logger.Error("session id not found")
+			return
+		}
 
 		logger := app.logger.WithFields(logrus.Fields{
 			"request_id": uuid.New(),
@@ -322,22 +350,28 @@ func (app *App) HandleLogs() websocket.Handler {
 			"request":    fmt.Sprintf("%s %s", wsconn.Request().Method, wsconn.Request().URL.Path),
 		})
 
+		if !statusOk(sessionID, app.serviceName, app.sidecarPort) {
+			logger.Errorf("container host is unreachable")
+			return
+		}
+
 		logger.Infof("stream logs request: %s", fmt.Sprintf("%s.%s", sessionID, app.serviceName))
 
-		r, err := app.client.Logs(wsconn.Request().Context(), sessionID)
+		conn, err := app.client.Logs(wsconn.Request().Context(), sessionID)
 		if err != nil {
 			logger.Errorf("stream logs error: %v", err)
+			return
 		}
-		defer r.Close()
+		defer conn.Close()
 		wsconn.PayloadType = websocket.BinaryFrame
 
 		go func() {
-			io.Copy(wsconn, r)
+			io.Copy(wsconn, conn)
 			wsconn.Close()
-			logger.Errorf("stream logs connection closed")
+			logger.Warnf("stream logs connection closed")
 		}()
-		io.Copy(wsconn, r)
-		logger.Errorf("stream logs disconnected")
+		io.Copy(wsconn, conn)
+		logger.Infof("stream logs disconnected")
 	}
 }
 
@@ -347,39 +381,31 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 
 	type Status struct {
 		Total    int                 `json:"total"`
+		Active   int                 `json:"active"`
+		Pending  int                 `json:"pending"`
 		Browsers map[string][]string `json:"config,omitempty"`
-		Sessions []*platform.Service `json:"sessions,omitempty"`
+		Sessions []platform.Service  `json:"sessions,omitempty"`
 	}
 
 	type Response struct {
 		Status    int    `json:"status"`
+		Version   string `json:"version"`
 		Error     string `json:"err,omitempty"`
 		Selenosis Status `json:"selenosis,omitempty"`
 	}
 
-	sessions, err := app.client.List()
-	if err != nil {
-		app.logger.Errorf("hub status: %v", err)
-		json.NewEncoder(w).Encode(
-			Response{
-				Status: http.StatusInternalServerError,
-				Error:  fmt.Sprintf("%v", err),
-				Selenosis: Status{
-					Total:    app.sessionLimit,
-					Browsers: app.browsers.GetBrowserVersions(),
-				},
-			},
-		)
-		return
-	}
+	active, pending := getSessionStats(app.stats.List())
 
 	json.NewEncoder(w).Encode(
 		Response{
-			Status: http.StatusOK,
+			Status:  http.StatusOK,
+			Version: app.buildVersion,
 			Selenosis: Status{
 				Total:    app.sessionLimit,
+				Active:   len(active),
+				Pending:  len(pending),
 				Browsers: app.browsers.GetBrowserVersions(),
-				Sessions: sessions,
+				Sessions: active,
 			},
 		},
 	)
@@ -392,4 +418,34 @@ func parseImage(image string) (container string) {
 		return "selenoid-browser"
 	}
 	return pref.ReplaceAllString(image, "-")
+}
+
+func statusOk(session, service, port string) bool {
+	u := &url.URL{
+		Scheme: "http",
+		Host:   tools.BuildHostPort(session, service, port),
+		Path:   "/status",
+	}
+
+	resp, err := http.Get(u.String())
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return false
+	}
+
+	return true
+}
+
+func getSessionStats(sessions []platform.Service) (active []platform.Service, pending []platform.Service) {
+	active = make([]platform.Service, 0)
+	pending = make([]platform.Service, 0)
+
+	for _, s := range sessions {
+		switch s.Status {
+		case platform.Running:
+			active = append(active, s)
+		case platform.Pending:
+			pending = append(pending, s)
+		}
+	}
+	return
 }
