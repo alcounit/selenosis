@@ -11,7 +11,6 @@ import (
 	"path"
 	"time"
 
-	"github.com/alcounit/selenosis/tools"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -240,6 +239,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 			RestartPolicy:    apiv1.RestartPolicyNever,
 			Affinity:         &layout.Template.Spec.Affinity,
 			DNSConfig:        &layout.Template.Spec.DNSConfig,
+			Tolerations:      layout.Template.Spec.Tolerations,
 			ImagePullSecrets: getImagePullSecretList(cl.imagePullSecretName),
 		},
 	}
@@ -323,7 +323,6 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 			cancel()
 		},
 		Started: pod.CreationTimestamp.Time,
-		Uptime:  tools.TimeElapsed(pod.CreationTimestamp.Time),
 	}
 
 	return svc, nil
@@ -377,7 +376,6 @@ func (cl *Client) List() ([]*Service, error) {
 			},
 			Status:  status,
 			Started: pod.CreationTimestamp.Time,
-			Uptime:  tools.TimeElapsed(pod.CreationTimestamp.Time),
 		}
 		services = append(services, service)
 	}
@@ -417,7 +415,6 @@ func (cl Client) Watch() <-chan Event {
 			},
 			Status:  status,
 			Started: pod.CreationTimestamp.Time,
-			Uptime:  tools.TimeElapsed(pod.CreationTimestamp.Time),
 		}
 	}
 
