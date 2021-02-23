@@ -29,7 +29,5 @@ jobs:
         with:
           context: .
           push: true
-          build-args: ${{ steps.get_version.outputs.GIT_TAG }}
-          tags: |
-            alcounit/selenosis:latest
-            alcounit/selenosis:${{ steps.get_version.outputs.GIT_TAG }}
+          build-args: BUILD_VERSION=${{ steps.get_version.outputs.GIT_TAG }}
+          tags: alcounit/selenosis:${{ steps.get_version.outputs.GIT_TAG }}
