@@ -1,4 +1,6 @@
-[![Docker Pulls](https://img.shields.io/docker/pulls/alcounit/selenosis)](https://hub.docker.com/r/alcounit/selenosis/tags?page=1&ordering=last_updated)
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/alcounit/selenosis)
+![Docker Pulls](https://img.shields.io/docker/pulls/alcounit/selenosis)
+![GitHub](https://img.shields.io/github/license/alcounit/selenosis)
 # selenosis
 Scalable, stateless selenium hub for Kubernetes cluster.
 
