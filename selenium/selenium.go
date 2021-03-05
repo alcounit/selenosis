@@ -32,16 +32,20 @@ type Capabilities struct {
 
 //ValidateCapabilities ...
 func (c *Capabilities) ValidateCapabilities() {
-	if c.BrowserName == "" {
-		c.BrowserName = c.DeviceName
-	}
-
-	if c.BrowserVersion == "" {
+	if c.W3CBrowserVersion == "" {
 		c.BrowserVersion = c.W3CBrowserVersion
 	}
 
-	if c.Platform == "" {
+	if c.WC3PlatformName == "" {
 		c.Platform = c.WC3PlatformName
 	}
+}
 
+//GetBrowserName ...
+func (c *Capabilities) GetBrowserName() string {
+	browserName := c.BrowserName
+	if browserName != "" {
+		return browserName
+	}
+	return c.DeviceName
 }
