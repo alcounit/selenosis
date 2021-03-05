@@ -70,7 +70,7 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	type request struct {
+	var request struct {
 		DesiredCapabilities selenium.Capabilities `json:"desiredCapabilities"`
 		Capabilities        struct {
 			AlwaysMatch selenium.Capabilities    `json:"alwaysMatch"`
@@ -78,35 +78,31 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 		} `json:"capabilities"`
 	}
 
-	caps := request{}
-	err = json.Unmarshal(body, &caps)
+	err = json.Unmarshal(body, &request)
 	if err != nil {
 		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("failed to parse request: %v", err)
 		tools.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	caps.DesiredCapabilities.ValidateCapabilities()
-	caps.Capabilities.AlwaysMatch.ValidateCapabilities()
-
-	if caps.DesiredCapabilities.BrowserName != "" && caps.Capabilities.AlwaysMatch.BrowserName != "" {
-		caps.DesiredCapabilities = caps.Capabilities.AlwaysMatch
+	if request.Capabilities.AlwaysMatch.GetBrowserName() != "" && request.DesiredCapabilities.GetBrowserName() == "" {
+		request.DesiredCapabilities = request.Capabilities.AlwaysMatch
 	}
 
-	firstMatchCaps := caps.Capabilities.FirstMatch
+	firstMatchCaps := request.Capabilities.FirstMatch
 	if len(firstMatchCaps) == 0 {
 		firstMatchCaps = append(firstMatchCaps, &selenium.Capabilities{})
 	}
 
 	var browser *platform.BrowserSpec
-	var capabilities selenium.Capabilities
+	var caps selenium.Capabilities
 
-	for _, first := range firstMatchCaps {
-		capabilities = caps.DesiredCapabilities
-		mergo.Merge(&capabilities, first)
-		capabilities.ValidateCapabilities()
+	for _, fmc := range firstMatchCaps {
+		caps = request.DesiredCapabilities
+		mergo.Merge(&caps, *fmc)
+		caps.ValidateCapabilities()
 
-		browser, err = app.browsers.Find(capabilities.BrowserName, capabilities.BrowserVersion)
+		browser, err = app.browsers.Find(caps.BrowserName, caps.BrowserVersion)
 		if err == nil {
 			break
 		}
@@ -121,7 +117,7 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 	image := parseImage(browser.Image)
 	template := &platform.ServiceSpec{
 		SessionID:             fmt.Sprintf("%s-%s", image, uuid.New()),
-		RequestedCapabilities: capabilities,
+		RequestedCapabilities: caps,
 		Template:              browser,
 	}
 
