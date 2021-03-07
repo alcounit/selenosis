@@ -48,10 +48,10 @@ Flags:
 ## Configuration
 Selenosis can run any docker image with browser but best work with images debeloped by Aerokube team:
 <br>
-* [Android](https://hub.docker.com/r/selenoid/android/tags?page=1&ordering=last_updated)
-* [Chrome](https://hub.docker.com/r/selenoid/chrome/tags?page=1&ordering=last_updated)
-* [Firefox](https://hub.docker.com/r/selenoid/firefox/tags?page=1&ordering=last_updated)
-* [Opera](https://hub.docker.com/r/selenoid/opera/tags?page=1&ordering=last_updated)
+* [Android](https://aerokube.com/images/latest/#_android)
+* [Chrome](https://aerokube.com/images/latest/#_chrome)
+* [Firefox](https://aerokube.com/images/latest/#_firefox)
+* [Opera](https://aerokube.com/images/latest/#_opera)
 
 To start browsers in kubernetes cluster you will need config, config can be JSON or YAML file.<br/>
 Basic configuration is be like (all fields in this example are mandatory):
