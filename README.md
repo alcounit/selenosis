@@ -46,8 +46,15 @@ Flags:
 <br/>
 
 ## Configuration
-Selenosis requires config to start browsers in K8 cluster. Config can be JSON or YAML file.<br/>
-Basic configuration be like (all fields in this example are mandatory):
+Selenosis can run any docker image with browser but best work with images debeloped by Aerokube team:
+<br>
+* [Android](https://hub.docker.com/r/selenoid/android/tags?page=1&ordering=last_updated)
+* [Chrome](https://hub.docker.com/r/selenoid/chrome/tags?page=1&ordering=last_updated)
+* [Firefox](https://hub.docker.com/r/selenoid/firefox/tags?page=1&ordering=last_updated)
+* [Opera](https://hub.docker.com/r/selenoid/opera/tags?page=1&ordering=last_updated)
+
+To start browsers in kubernetes cluster you will need config, config can be JSON or YAML file.<br/>
+Basic configuration is be like (all fields in this example are mandatory):
 
 ```json
 {
@@ -143,7 +150,7 @@ Each browser can have default <b>spec/annotations/labels</b>, they will merged t
           "cpu": "0.5"
         },
         "limits": {
-          "memory": "1000Gi",
+          "memory": "1Gi",
           "cpu": "1"
         }
       },
@@ -208,7 +215,7 @@ chrome:
         memory: 500Mi
         cpu: '0.5'
       limits:
-        memory: 1000Gi
+        memory: 1Gi
         cpu: '1'
     hostAliases:
     - ip: 127.0.0.1
@@ -255,7 +262,7 @@ You can override default browser <b>spec/annotation/labels</b> by providing indi
           "cpu": "0.5"
         },
         "limits": {
-          "memory": "1000Gi",
+          "memory": "1Gi",
           "cpu": "1"
         }
       },
@@ -300,7 +307,7 @@ You can override default browser <b>spec/annotation/labels</b> by providing indi
               "cpu": "0.5"
             },
             "limits": {
-              "memory": "1500Gi",
+              "memory": "1.5Gi",
               "cpu": "1"
             }
           }
@@ -347,7 +354,7 @@ chrome:
         memory: 500Mi
         cpu: '0.5'
       limits:
-        memory: 1000Gi
+        memory: 1Gi
         cpu: '1'
     hostAliases:
     - ip: 127.0.0.1
@@ -374,7 +381,7 @@ chrome:
             memory: 750Mi
             cpu: '0.5'
           limits:
-            memory: 1500Gi
+            memory: 1.5Gi
             cpu: '1'
     '86.0':
       image: selenoid/vnc:chrome_86.0
@@ -416,8 +423,16 @@ driver = webdriver.Remote(
     desired_capabilities=capabilities)
  ```
 
- Note: you can omit browser version in your desired capabilities, make sure you set defaultVersion property in the config file.
+List of capabilities required for selenoid-ui compatibility:
+| key              | type    | description              |
+|----------------- |-------- |------------------------- |
+| enableVNC        | boolean | enables VNC support      |
+| name             | string  | name of test             |
+| screenResolution | string  | custom screen resolution |
 
+</br>
+ Note: you can omit browser version in your desired capabilities, make sure you set defaultVersion property in the config file.
+</br></br>
 
 ## Browser pods are deleted right after start
 Depends on you cluster version in some cases you can face with issue when some browser pods are deleted right after their start and selenosis log will contains lines like this:
