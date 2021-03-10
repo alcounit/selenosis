@@ -102,7 +102,7 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 		mergo.Merge(&caps, *fmc)
 		caps.ValidateCapabilities()
 
-		browser, err = app.browsers.Find(caps.BrowserName, caps.BrowserVersion)
+		browser, err = app.browsers.Find(caps.GetBrowserName(), caps.BrowserVersion)
 		if err == nil {
 			break
 		}
