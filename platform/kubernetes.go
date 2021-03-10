@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -31,17 +32,21 @@ var (
 		vnc:      intstr.FromString("5900"),
 	}
 
-	defaults = struct {
-		serviceType, testName, browserName, browserVersion, screenResolution, enableVNC, timeZone, session string
+	defaultsAnnotations = struct {
+		testName, browserName, browserVersion, screenResolution, enableVNC, timeZone string
 	}{
-		serviceType:      "type",
 		testName:         "testName",
 		browserName:      "browserName",
 		browserVersion:   "browserVersion",
 		screenResolution: "SCREEN_RESOLUTION",
 		enableVNC:        "ENABLE_VNC",
 		timeZone:         "TZ",
-		session:          "session",
+	}
+	defaultLabels = struct {
+		serviceType, session string
+	}{
+		serviceType: "type",
+		session:     "session",
 	}
 )
 
@@ -116,13 +121,15 @@ func NewDefaultClient(namespace string) (Platform, error) {
 
 //Create ...
 func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
+	annontations := map[string]string{
+		defaultsAnnotations.browserName:    layout.Template.BrowserName,
+		defaultsAnnotations.browserVersion: layout.Template.BrowserVersion,
+		defaultsAnnotations.testName:       layout.RequestedCapabilities.TestName,
+	}
 
 	labels := map[string]string{
-		defaults.serviceType:    "browser",
-		defaults.browserName:    layout.Template.BrowserName,
-		defaults.browserVersion: layout.Template.BrowserVersion,
-		defaults.testName:       layout.RequestedCapabilities.TestName,
-		defaults.session:        layout.SessionID,
+		defaultLabels.serviceType: "browser",
+		defaultLabels.session:     layout.SessionID,
 	}
 
 	envVar := func(name string) (i int, b bool) {
@@ -134,43 +141,48 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		return -1, false
 	}
 
-	i, b := envVar(defaults.screenResolution)
+	i, b := envVar(defaultsAnnotations.screenResolution)
 	if layout.RequestedCapabilities.ScreenResolution != "" {
 		if !b {
 			layout.Template.Spec.EnvVars = append(layout.Template.Spec.EnvVars,
-				apiv1.EnvVar{Name: defaults.screenResolution,
+				apiv1.EnvVar{Name: defaultsAnnotations.screenResolution,
 					Value: layout.RequestedCapabilities.ScreenResolution})
 		} else {
-			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaults.screenResolution, Value: layout.RequestedCapabilities.ScreenResolution}
+			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaultsAnnotations.screenResolution, Value: layout.RequestedCapabilities.ScreenResolution}
 		}
-		labels[defaults.screenResolution] = layout.RequestedCapabilities.ScreenResolution
+		annontations[defaultsAnnotations.screenResolution] = layout.RequestedCapabilities.ScreenResolution
 	} else {
 		if b {
-			labels[defaults.screenResolution] = layout.Template.Spec.EnvVars[i].Value
+			annontations[defaultsAnnotations.screenResolution] = layout.Template.Spec.EnvVars[i].Value
 		}
 	}
 
-	i, b = envVar(defaults.enableVNC)
+	i, b = envVar(defaultsAnnotations.enableVNC)
 	if layout.RequestedCapabilities.VNC {
 		vnc := fmt.Sprintf("%v", layout.RequestedCapabilities.VNC)
 		if !b {
-			layout.Template.Spec.EnvVars = append(layout.Template.Spec.EnvVars, apiv1.EnvVar{Name: defaults.enableVNC, Value: vnc})
+			layout.Template.Spec.EnvVars = append(layout.Template.Spec.EnvVars, apiv1.EnvVar{Name: defaultsAnnotations.enableVNC, Value: vnc})
 		} else {
-			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaults.enableVNC, Value: vnc}
+			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaultsAnnotations.enableVNC, Value: vnc}
 		}
-		labels[defaults.enableVNC] = vnc
+		annontations[defaultsAnnotations.enableVNC] = vnc
 	} else {
 		if b {
-			labels[defaults.enableVNC] = layout.Template.Spec.EnvVars[i].Value
+			annontations[defaultsAnnotations.enableVNC] = layout.Template.Spec.EnvVars[i].Value
 		}
 	}
 
+	i, b = envVar(defaultsAnnotations.timeZone)
 	if layout.RequestedCapabilities.TimeZone != "" {
-		i, b := envVar(defaults.timeZone)
 		if !b {
-			layout.Template.Spec.EnvVars = append(layout.Template.Spec.EnvVars, apiv1.EnvVar{Name: defaults.timeZone, Value: layout.RequestedCapabilities.TimeZone})
+			layout.Template.Spec.EnvVars = append(layout.Template.Spec.EnvVars, apiv1.EnvVar{Name: defaultsAnnotations.timeZone, Value: layout.RequestedCapabilities.TimeZone})
 		} else {
-			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaults.timeZone, Value: layout.RequestedCapabilities.TimeZone}
+			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaultsAnnotations.timeZone, Value: layout.RequestedCapabilities.TimeZone}
+		}
+		annontations[defaultsAnnotations.timeZone] = layout.RequestedCapabilities.TimeZone
+	} else {
+		if b {
+			annontations[defaultsAnnotations.timeZone] = layout.Template.Spec.EnvVars[i].Value
 		}
 	}
 
@@ -180,6 +192,14 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 
 	for k, v := range labels {
 		layout.Template.Meta.Labels[k] = v
+	}
+
+	if layout.Template.Meta.Annotations == nil {
+		layout.Template.Meta.Annotations = make(map[string]string)
+	}
+
+	if caps, err := json.Marshal(annontations); err == nil {
+		layout.Template.Meta.Annotations["capabilities"] = string(caps)
 	}
 
 	pod := &apiv1.Pod{
@@ -318,7 +338,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 	svc := &Service{
 		SessionID: podName,
 		URL:       u,
-		Labels:    layout.Template.Meta.Labels,
+		Labels:    getRequestedCapabilities(pod.GetAnnotations()),
 		CancelFunc: func() {
 			cancel()
 		},
@@ -370,7 +390,7 @@ func (cl *Client) List() ([]*Service, error) {
 				Scheme: "http",
 				Host:   net.JoinHostPort(host, cl.svcPort.StrVal),
 			},
-			Labels: pod.GetLabels(),
+			Labels: getRequestedCapabilities(pod.GetAnnotations()),
 			CancelFunc: func() {
 				cl.Delete(podName)
 			},
@@ -409,7 +429,7 @@ func (cl Client) Watch() <-chan Event {
 				Scheme: "http",
 				Host:   net.JoinHostPort(host, cl.svcPort.StrVal),
 			},
-			Labels: pod.GetLabels(),
+			Labels: getRequestedCapabilities(pod.GetAnnotations()),
 			CancelFunc: func() {
 				cl.Delete(podName)
 			},
@@ -493,6 +513,17 @@ func getImagePullSecretList(secret string) []apiv1.LocalObjectReference {
 		refList = append(refList, ref)
 	}
 	return refList
+}
+
+func getRequestedCapabilities(annotations map[string]string) map[string]string {
+	if k, ok := annotations["capabilities"]; ok {
+		capabilities := make(map[string]string)
+		err := json.Unmarshal([]byte(k), &capabilities)
+		if err == nil {
+			return capabilities
+		}
+	}
+	return nil
 }
 
 func waitForService(u url.URL, t time.Duration) error {
