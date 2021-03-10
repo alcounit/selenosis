@@ -32,11 +32,11 @@ type Capabilities struct {
 
 //ValidateCapabilities ...
 func (c *Capabilities) ValidateCapabilities() {
-	if c.W3CBrowserVersion == "" {
+	if c.W3CBrowserVersion != "" {
 		c.BrowserVersion = c.W3CBrowserVersion
 	}
 
-	if c.WC3PlatformName == "" {
+	if c.WC3PlatformName != "" {
 		c.Platform = c.WC3PlatformName
 	}
 }
