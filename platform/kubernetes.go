@@ -12,6 +12,7 @@ import (
 	"path"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -70,7 +71,7 @@ type Client struct {
 	proxyImage          string
 	readinessTimeout    time.Duration
 	idleTimeout         time.Duration
-	clientset           *kubernetes.Clientset
+	clientset           kubernetes.Interface
 }
 
 //NewClient ...
@@ -318,23 +319,31 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		return fmt.Errorf("pod wasn't running")
 	}
 
-	if statusFn() != nil {
+	err = statusFn()
+	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("failed to create pod: %v", err)
+		return nil, fmt.Errorf("pod is not ready after creation: %v", err)
 	}
 
-	host := fmt.Sprintf("%s.%s", podName, cl.svc)
+	pod, err = cl.clientset.CoreV1().Pods(cl.ns).Get(context, podName, metav1.GetOptions{})
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("error getting started pod: %v", err)
+	}
+
 	u := &url.URL{
 		Scheme: "http",
-		Host:   net.JoinHostPort(host, browserPorts.selenium.StrVal),
+		Host:   net.JoinHostPort(pod.Status.PodIP, browserPorts.selenium.StrVal),
 	}
+
+	log.Infof("srv url: %s", u.String())
 
 	if err := waitForService(*u, cl.readinessTimeout); err != nil {
 		cancel()
 		return nil, fmt.Errorf("container service is not ready %v", u.String())
 	}
 
-	u.Host = net.JoinHostPort(host, cl.svcPort.StrVal)
+	u.Host = net.JoinHostPort(fmt.Sprintf("%s.%s", podName, cl.svc), cl.svcPort.StrVal)
 	svc := &Service{
 		SessionID: podName,
 		URL:       u,
@@ -342,6 +351,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		CancelFunc: func() {
 			cancel()
 		},
+		Status:  Running,
 		Started: pod.CreationTimestamp.Time,
 	}
 

@@ -128,7 +128,7 @@ func command() *cobra.Command {
 			defer cancel()
 
 			if err := srv.Shutdown(ctx); err != nil {
-				logger.Fatalf("faled to stop selenosis", err)
+				logger.Fatalf("failed to stop selenosis: %v", err)
 			}
 		},
 	}

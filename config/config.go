@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"sort"
+	"strconv"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -94,6 +96,11 @@ func (cfg *BrowsersConfig) GetBrowserVersions() map[string][]string {
 		versions := make([]string, 0)
 		for version := range layout.Versions {
 			versions = append(versions, version)
+			sort.Slice(versions[:], func(i, j int) bool {
+				ii, _ := strconv.ParseFloat(versions[i], 64)
+				jj, _ := strconv.ParseFloat(versions[j], 64)
+				return ii < jj
+			})
 		}
 		browsers[name] = versions
 	}
