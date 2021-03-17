@@ -6,13 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"path"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/alcounit/selenosis/tools"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -325,25 +324,17 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		return nil, fmt.Errorf("pod is not ready after creation: %v", err)
 	}
 
-	pod, err = cl.clientset.CoreV1().Pods(cl.ns).Get(context, podName, metav1.GetOptions{})
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("error getting started pod: %v", err)
-	}
-
 	u := &url.URL{
 		Scheme: "http",
-		Host:   net.JoinHostPort(pod.Status.PodIP, browserPorts.selenium.StrVal),
+		Host:   tools.BuildHostPort(podName, cl.svc, browserPorts.selenium.StrVal),
 	}
-
-	log.Infof("srv url: %s", u.String())
-
+	
 	if err := waitForService(*u, cl.readinessTimeout); err != nil {
 		cancel()
 		return nil, fmt.Errorf("container service is not ready %v", u.String())
 	}
 
-	u.Host = net.JoinHostPort(fmt.Sprintf("%s.%s", podName, cl.svc), cl.svcPort.StrVal)
+	u.Host = tools.BuildHostPort(podName, cl.svc, cl.svcPort.StrVal)
 	svc := &Service{
 		SessionID: podName,
 		URL:       u,
@@ -382,7 +373,6 @@ func (cl *Client) List() ([]*Service, error) {
 
 	for _, pod := range pods.Items {
 		podName := pod.GetName()
-		host := fmt.Sprintf("%s.%s", podName, cl.svc)
 
 		var status ServiceStatus
 		switch pod.Status.Phase {
@@ -398,7 +388,7 @@ func (cl *Client) List() ([]*Service, error) {
 			SessionID: podName,
 			URL: &url.URL{
 				Scheme: "http",
-				Host:   net.JoinHostPort(host, cl.svcPort.StrVal),
+				Host:   tools.BuildHostPort(podName, cl.svc, cl.svcPort.StrVal),
 			},
 			Labels: getRequestedCapabilities(pod.GetAnnotations()),
 			CancelFunc: func() {
@@ -421,7 +411,6 @@ func (cl Client) Watch() <-chan Event {
 	convert := func(obj interface{}) *Service {
 		pod := obj.(*apiv1.Pod)
 		podName := pod.GetName()
-		host := fmt.Sprintf("%s.%s", podName, cl.svc)
 
 		var status ServiceStatus
 		switch pod.Status.Phase {
@@ -437,7 +426,7 @@ func (cl Client) Watch() <-chan Event {
 			SessionID: podName,
 			URL: &url.URL{
 				Scheme: "http",
-				Host:   net.JoinHostPort(host, cl.svcPort.StrVal),
+				Host:   tools.BuildHostPort(podName, cl.svc, cl.svcPort.StrVal),
 			},
 			Labels: getRequestedCapabilities(pod.GetAnnotations()),
 			CancelFunc: func() {

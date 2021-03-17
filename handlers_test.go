@@ -20,10 +20,6 @@ import (
 	"gotest.tools/assert"
 )
 
-var (
-	srv *httptest.Server
-)
-
 const (
 	session   = "/wd/hub/session"
 	hubStatus = "/wd/hub/status"
@@ -569,42 +565,6 @@ func TestHandleStatus(t *testing.T) {
 		body := string(bytes.TrimSpace(b))
 
 		assert.Equal(t, test.respBody, body)
-	}
-
-}
-
-func TestStatusOk(t *testing.T) {
-	tests := map[string]struct {
-		respCode int
-		statusOk bool
-	}{
-		"Verify service status check ok": {
-			respCode: http.StatusOK,
-			statusOk: true,
-		},
-		"Verify service status check !ok": {
-			respCode: http.StatusNotFound,
-			statusOk: false,
-		},
-	}
-
-	for name, test := range tests {
-
-		t.Logf("TC: %s", name)
-
-		r := mux.NewRouter()
-		r.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(test.respCode)
-			return
-		})
-
-		s := httptest.NewServer(r)
-		defer s.Close()
-
-		u, _ := url.Parse(s.URL)
-		resp := statusOk("127.0.0", "1", u.Port())
-		assert.Equal(t, test.statusOk, resp)
-
 	}
 
 }

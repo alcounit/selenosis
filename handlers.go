@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -263,13 +262,13 @@ func (app *App) HandleReverseProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fragments := strings.Split(r.URL.Path, "/")
 	logger := app.logger.WithFields(logrus.Fields{
 		"request_id": uuid.New(),
 		"session_id": sessionID,
 		"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
 	})
 
+	fragments := strings.Split(r.URL.Path, "/")
 	(&httputil.ReverseProxy{
 		Director: func(r *http.Request) {
 			r.URL.Scheme = "http"
@@ -296,28 +295,23 @@ func (app *App) HandleVNC() websocket.Handler {
 			return
 		}
 
+		host := tools.BuildHostPort(sessionID, app.serviceName, "5900")
 		logger := app.logger.WithFields(logrus.Fields{
 			"request_id": uuid.New(),
 			"session_id": sessionID,
 			"request":    fmt.Sprintf("%s %s", wsconn.Request().Method, wsconn.Request().URL.Path),
 		})
-
-		if !statusOk(sessionID, app.serviceName, app.sidecarPort) {
-			logger.Errorf("container host is unreachable")
-			return
-		}
-
-		host := tools.BuildHostPort(sessionID, app.serviceName, "5900")
 		logger.Infof("vnc request: %s", host)
 
 		var dialer net.Dialer
 		conn, err := dialer.DialContext(wsconn.Request().Context(), "tcp", host)
 		if err != nil {
 			logger.Errorf("vnc connection error: %v", err)
+			return
 		}
 		defer conn.Close()
-		wsconn.PayloadType = websocket.BinaryFrame
 
+		wsconn.PayloadType = websocket.BinaryFrame
 		go func() {
 			io.Copy(wsconn, conn)
 			wsconn.Close()
@@ -345,12 +339,6 @@ func (app *App) HandleLogs() websocket.Handler {
 			"session_id": sessionID,
 			"request":    fmt.Sprintf("%s %s", wsconn.Request().Method, wsconn.Request().URL.Path),
 		})
-
-		if !statusOk(sessionID, app.serviceName, app.sidecarPort) {
-			logger.Errorf("container host is unreachable")
-			return
-		}
-
 		logger.Infof("stream logs request: %s", fmt.Sprintf("%s.%s", sessionID, app.serviceName))
 
 		conn, err := app.client.Logs(wsconn.Request().Context(), sessionID)
@@ -359,8 +347,8 @@ func (app *App) HandleLogs() websocket.Handler {
 			return
 		}
 		defer conn.Close()
-		wsconn.PayloadType = websocket.BinaryFrame
 
+		wsconn.PayloadType = websocket.BinaryFrame
 		go func() {
 			io.Copy(wsconn, conn)
 			wsconn.Close()
@@ -391,7 +379,6 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	active, pending := getSessionStats(app.stats.List())
-
 	json.NewEncoder(w).Encode(
 		Response{
 			Status:  http.StatusOK,
@@ -405,7 +392,6 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 	)
-	return
 }
 
 func parseImage(image string) (container string) {
@@ -414,21 +400,6 @@ func parseImage(image string) (container string) {
 		return "selenoid-browser"
 	}
 	return pref.ReplaceAllString(image, "-")
-}
-
-func statusOk(session, service, port string) bool {
-	u := &url.URL{
-		Scheme: "http",
-		Host:   tools.BuildHostPort(session, service, port),
-		Path:   "/status",
-	}
-
-	resp, err := http.Get(u.String())
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return false
-	}
-
-	return true
 }
 
 func getSessionStats(sessions []platform.Service) (active []platform.Service, pending []platform.Service) {

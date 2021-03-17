@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"sort"
-	"strconv"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/util/yaml"
 
 	"github.com/alcounit/selenosis/platform"
+	"github.com/alcounit/selenosis/tools"
 	"github.com/imdario/mergo"
 )
 
@@ -97,8 +97,8 @@ func (cfg *BrowsersConfig) GetBrowserVersions() map[string][]string {
 		for version := range layout.Versions {
 			versions = append(versions, version)
 			sort.Slice(versions[:], func(i, j int) bool {
-				ii, _ := strconv.ParseFloat(versions[i], 64)
-				jj, _ := strconv.ParseFloat(versions[j], 64)
+				ii := tools.StrToFloat64(versions[i])
+				jj := tools.StrToFloat64(versions[j])
 				return ii < jj
 			})
 		}
