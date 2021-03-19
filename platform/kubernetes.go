@@ -48,6 +48,7 @@ var (
 		serviceType: "type",
 		session:     "session",
 	}
+	label = "type=browser"
 )
 
 //ClientConfig ...
@@ -223,15 +224,10 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 							},
 						},
 					},
-					Env:       layout.Template.Spec.EnvVars,
-					Ports:     getBrowserPorts(),
-					Resources: layout.Template.Spec.Resources,
-					VolumeMounts: []apiv1.VolumeMount{
-						{
-							Name:      "dshm",
-							MountPath: "/dev/shm",
-						},
-					},
+					Env:             layout.Template.Spec.EnvVars,
+					Ports:           getBrowserPorts(),
+					Resources:       layout.Template.Spec.Resources,
+					VolumeMounts:    getVolumeMounts(layout.Template.Spec.VolumeMounts),
 					ImagePullPolicy: apiv1.PullIfNotPresent,
 				},
 				{
@@ -244,16 +240,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 					ImagePullPolicy: apiv1.PullIfNotPresent,
 				},
 			},
-			Volumes: []apiv1.Volume{
-				{
-					Name: "dshm",
-					VolumeSource: apiv1.VolumeSource{
-						EmptyDir: &apiv1.EmptyDirVolumeSource{
-							Medium: apiv1.StorageMediumMemory,
-						},
-					},
-				},
-			},
+			Volumes:          getVolumes(layout.Template.Volumes),
 			NodeSelector:     layout.Template.Spec.NodeSelector,
 			HostAliases:      layout.Template.Spec.HostAliases,
 			RestartPolicy:    apiv1.RestartPolicyNever,
@@ -328,7 +315,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		Scheme: "http",
 		Host:   tools.BuildHostPort(podName, cl.svc, browserPorts.selenium.StrVal),
 	}
-	
+
 	if err := waitForService(*u, cl.readinessTimeout); err != nil {
 		cancel()
 		return nil, fmt.Errorf("container service is not ready %v", u.String())
@@ -362,7 +349,7 @@ func (cl *Client) Delete(name string) error {
 func (cl *Client) List() ([]*Service, error) {
 	context := context.Background()
 	pods, err := cl.clientset.CoreV1().Pods(cl.ns).List(context, metav1.ListOptions{
-		LabelSelector: "type=browser",
+		LabelSelector: label,
 	})
 
 	if err != nil {
@@ -439,7 +426,7 @@ func (cl Client) Watch() <-chan Event {
 
 	namespace := informers.WithNamespace(cl.ns)
 	labels := informers.WithTweakListOptions(func(list *metav1.ListOptions) {
-		list.LabelSelector = "type=browser"
+		list.LabelSelector = label
 	})
 
 	sharedIformer := informers.NewSharedInformerFactoryWithOptions(cl.clientset, 30*time.Second, namespace, labels)
@@ -523,6 +510,36 @@ func getRequestedCapabilities(annotations map[string]string) map[string]string {
 		}
 	}
 	return nil
+}
+
+func getVolumeMounts(mounts []apiv1.VolumeMount) []apiv1.VolumeMount {
+	vm := []apiv1.VolumeMount{
+		{
+			Name:      "dshm",
+			MountPath: "/dev/shm",
+		},
+	}
+	if mounts != nil {
+		vm = append(vm, mounts...)
+	}
+	return vm
+}
+
+func getVolumes(volumes []apiv1.Volume) []apiv1.Volume {
+	v := []apiv1.Volume{
+		{
+			Name: "dshm",
+			VolumeSource: apiv1.VolumeSource{
+				EmptyDir: &apiv1.EmptyDirVolumeSource{
+					Medium: apiv1.StorageMediumMemory,
+				},
+			},
+		},
+	}
+	if volumes != nil {
+		v = append(v, volumes...)
+	}
+	return v
 }
 
 func waitForService(u url.URL, t time.Duration) error {
