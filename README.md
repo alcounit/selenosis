@@ -45,6 +45,43 @@ Flags:
 | HTTP    | /healthz                     |
 <br/>
 
+## Features
+### Scalability
+By default selenosis starts with 2 replica sets. To change it, edit selenosis deployment file: <b>[03-selenosis.yaml](https://github.com/alcounit/selenosis-deploy/blob/main/03-selenosis.yaml)</b>
+``` yaml
+
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: selenosis
+  namespace: selenosis
+spec:
+  replicas: 2
+  selector:
+...
+```
+<br/>
+by using kubectl
+
+```bash
+kubectl scale deployment selenosis -n selenosis --replicas=3
+```
+
+### Stateless
+All connections to the browsers are automatically assigned via [headless service](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/).
+
+### Hot config reload
+Selenosis supports hot config reload, to do so update you configMap
+```bash
+kubectl edit configmap -n selenosis selenosis-config -o yaml
+```
+
+### UI for debug
+Selenosis itself doesn't have ui. If you need such functionality you can use [selenoid-ui](https://github.com/aerokube/selenoid-ui) with special [adapter container](https://github.com/alcounit/adaptee). 
+Deployment steps and minifests you can find in [selenosis-deploy](https://github.com/alcounit/selenosis-deploy) repository.
+
+Currently this project is under development and can be unstable, in case of any bugs or ideas please report
+
 ## Configuration
 Selenosis can run any docker image with browser but best work with images debeloped by Aerokube team:
 <br>
@@ -642,40 +679,3 @@ data:
 kind: ConfigMap
 ...
 ```
-
-## Features
-### Scalability
-By default selenosis starts with 2 replica sets. To change it, edit selenosis deployment file: <b>[03-selenosis.yaml](https://github.com/alcounit/selenosis-deploy/blob/main/03-selenosis.yaml)</b>
-``` yaml
-
-apiVersion: apps/v1beta1
-kind: Deployment
-metadata:
-  name: selenosis
-  namespace: selenosis
-spec:
-  replicas: 2
-  selector:
-...
-```
-<br/>
-by using kubectl
-
-```bash
-kubectl scale deployment selenosis -n selenosis --replicas=3
-```
-
-### Stateless
-All connections to the browsers are automatically assigned via [headless service](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/).
-
-### Hot config reload
-Selenosis supports hot config reload, to do so update you configMap
-```bash
-kubectl edit configmap -n selenosis selenosis-config -o yaml
-```
-
-### UI for debug
-Selenosis itself doesn't have ui. If you need such functionality you can use [selenoid-ui](https://github.com/aerokube/selenoid-ui) with special [adapter container](https://github.com/alcounit/adaptee). 
-Deployment steps and minifests you can find in [selenosis-deploy](https://github.com/alcounit/selenosis-deploy) repository.
-
-Currently this project is under development and can be unstable, in case of any bugs or ideas please report
