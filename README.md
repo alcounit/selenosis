@@ -80,7 +80,6 @@ kubectl edit configmap -n selenosis selenosis-config -o yaml
 Selenosis itself doesn't have ui. If you need such functionality you can use [selenoid-ui](https://github.com/aerokube/selenoid-ui) with special [adapter container](https://github.com/alcounit/adaptee). 
 Deployment steps and minifests you can find in [selenosis-deploy](https://github.com/alcounit/selenosis-deploy) repository.
 
-Currently this project is under development and can be unstable, in case of any bugs or ideas please report
 
 ## Configuration
 Selenosis can run any docker image with browser but best work with images debeloped by Aerokube team:
@@ -679,3 +678,4 @@ data:
 kind: ConfigMap
 ...
 ```
+Currently this project is under development and can be unstable, in case of any bugs or ideas please report
