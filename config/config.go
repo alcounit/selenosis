@@ -98,12 +98,12 @@ func (cfg *BrowsersConfig) GetBrowserVersions() map[string][]string {
 		versions := make([]string, 0)
 		for version := range layout.Versions {
 			versions = append(versions, version)
-			sort.Slice(versions[:], func(i, j int) bool {
-				ii := tools.StrToFloat64(versions[i])
-				jj := tools.StrToFloat64(versions[j])
-				return ii < jj
-			})
 		}
+		sort.Slice(versions[:], func(i, j int) bool {
+			ii := tools.StrToFloat64(versions[i])
+			jj := tools.StrToFloat64(versions[j])
+			return ii < jj
+		})
 		browsers[name] = versions
 	}
 
