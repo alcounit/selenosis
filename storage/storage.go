@@ -24,7 +24,9 @@ func New() *Storage {
 func (s *Storage) Put(sessionID string, service *platform.Service) {
 	s.Lock()
 	defer s.Unlock()
-	s.sessions[sessionID] = service
+	if sessionID != "" {
+		s.sessions[sessionID] = service
+	}
 }
 
 //Delete ...

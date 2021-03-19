@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"path"
 	"time"
 
+	"github.com/alcounit/selenosis/tools"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -48,6 +48,7 @@ var (
 		serviceType: "type",
 		session:     "session",
 	}
+	label = "type=browser"
 )
 
 //ClientConfig ...
@@ -70,7 +71,7 @@ type Client struct {
 	proxyImage          string
 	readinessTimeout    time.Duration
 	idleTimeout         time.Duration
-	clientset           *kubernetes.Clientset
+	clientset           kubernetes.Interface
 }
 
 //NewClient ...
@@ -223,15 +224,10 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 							},
 						},
 					},
-					Env:       layout.Template.Spec.EnvVars,
-					Ports:     getBrowserPorts(),
-					Resources: layout.Template.Spec.Resources,
-					VolumeMounts: []apiv1.VolumeMount{
-						{
-							Name:      "dshm",
-							MountPath: "/dev/shm",
-						},
-					},
+					Env:             layout.Template.Spec.EnvVars,
+					Ports:           getBrowserPorts(),
+					Resources:       layout.Template.Spec.Resources,
+					VolumeMounts:    getVolumeMounts(layout.Template.Spec.VolumeMounts),
 					ImagePullPolicy: apiv1.PullIfNotPresent,
 				},
 				{
@@ -244,16 +240,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 					ImagePullPolicy: apiv1.PullIfNotPresent,
 				},
 			},
-			Volumes: []apiv1.Volume{
-				{
-					Name: "dshm",
-					VolumeSource: apiv1.VolumeSource{
-						EmptyDir: &apiv1.EmptyDirVolumeSource{
-							Medium: apiv1.StorageMediumMemory,
-						},
-					},
-				},
-			},
+			Volumes:          getVolumes(layout.Template.Volumes),
 			NodeSelector:     layout.Template.Spec.NodeSelector,
 			HostAliases:      layout.Template.Spec.HostAliases,
 			RestartPolicy:    apiv1.RestartPolicyNever,
@@ -318,15 +305,15 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		return fmt.Errorf("pod wasn't running")
 	}
 
-	if statusFn() != nil {
+	err = statusFn()
+	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("failed to create pod: %v", err)
+		return nil, fmt.Errorf("pod is not ready after creation: %v", err)
 	}
 
-	host := fmt.Sprintf("%s.%s", podName, cl.svc)
 	u := &url.URL{
 		Scheme: "http",
-		Host:   net.JoinHostPort(host, browserPorts.selenium.StrVal),
+		Host:   tools.BuildHostPort(podName, cl.svc, browserPorts.selenium.StrVal),
 	}
 
 	if err := waitForService(*u, cl.readinessTimeout); err != nil {
@@ -334,7 +321,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		return nil, fmt.Errorf("container service is not ready %v", u.String())
 	}
 
-	u.Host = net.JoinHostPort(host, cl.svcPort.StrVal)
+	u.Host = tools.BuildHostPort(podName, cl.svc, cl.svcPort.StrVal)
 	svc := &Service{
 		SessionID: podName,
 		URL:       u,
@@ -342,6 +329,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 		CancelFunc: func() {
 			cancel()
 		},
+		Status:  Running,
 		Started: pod.CreationTimestamp.Time,
 	}
 
@@ -361,7 +349,7 @@ func (cl *Client) Delete(name string) error {
 func (cl *Client) List() ([]*Service, error) {
 	context := context.Background()
 	pods, err := cl.clientset.CoreV1().Pods(cl.ns).List(context, metav1.ListOptions{
-		LabelSelector: "type=browser",
+		LabelSelector: label,
 	})
 
 	if err != nil {
@@ -372,7 +360,6 @@ func (cl *Client) List() ([]*Service, error) {
 
 	for _, pod := range pods.Items {
 		podName := pod.GetName()
-		host := fmt.Sprintf("%s.%s", podName, cl.svc)
 
 		var status ServiceStatus
 		switch pod.Status.Phase {
@@ -388,7 +375,7 @@ func (cl *Client) List() ([]*Service, error) {
 			SessionID: podName,
 			URL: &url.URL{
 				Scheme: "http",
-				Host:   net.JoinHostPort(host, cl.svcPort.StrVal),
+				Host:   tools.BuildHostPort(podName, cl.svc, cl.svcPort.StrVal),
 			},
 			Labels: getRequestedCapabilities(pod.GetAnnotations()),
 			CancelFunc: func() {
@@ -411,7 +398,6 @@ func (cl Client) Watch() <-chan Event {
 	convert := func(obj interface{}) *Service {
 		pod := obj.(*apiv1.Pod)
 		podName := pod.GetName()
-		host := fmt.Sprintf("%s.%s", podName, cl.svc)
 
 		var status ServiceStatus
 		switch pod.Status.Phase {
@@ -427,7 +413,7 @@ func (cl Client) Watch() <-chan Event {
 			SessionID: podName,
 			URL: &url.URL{
 				Scheme: "http",
-				Host:   net.JoinHostPort(host, cl.svcPort.StrVal),
+				Host:   tools.BuildHostPort(podName, cl.svc, cl.svcPort.StrVal),
 			},
 			Labels: getRequestedCapabilities(pod.GetAnnotations()),
 			CancelFunc: func() {
@@ -440,7 +426,7 @@ func (cl Client) Watch() <-chan Event {
 
 	namespace := informers.WithNamespace(cl.ns)
 	labels := informers.WithTweakListOptions(func(list *metav1.ListOptions) {
-		list.LabelSelector = "type=browser"
+		list.LabelSelector = label
 	})
 
 	sharedIformer := informers.NewSharedInformerFactoryWithOptions(cl.clientset, 30*time.Second, namespace, labels)
@@ -524,6 +510,36 @@ func getRequestedCapabilities(annotations map[string]string) map[string]string {
 		}
 	}
 	return nil
+}
+
+func getVolumeMounts(mounts []apiv1.VolumeMount) []apiv1.VolumeMount {
+	vm := []apiv1.VolumeMount{
+		{
+			Name:      "dshm",
+			MountPath: "/dev/shm",
+		},
+	}
+	if mounts != nil {
+		vm = append(vm, mounts...)
+	}
+	return vm
+}
+
+func getVolumes(volumes []apiv1.Volume) []apiv1.Volume {
+	v := []apiv1.Volume{
+		{
+			Name: "dshm",
+			VolumeSource: apiv1.VolumeSource{
+				EmptyDir: &apiv1.EmptyDirVolumeSource{
+					Medium: apiv1.StorageMediumMemory,
+				},
+			},
+		},
+	}
+	if volumes != nil {
+		v = append(v, volumes...)
+	}
+	return v
 }
 
 func waitForService(u url.URL, t time.Duration) error {

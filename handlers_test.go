@@ -14,17 +14,16 @@ import (
 
 	"github.com/alcounit/selenosis/config"
 	"github.com/alcounit/selenosis/platform"
+	"github.com/alcounit/selenosis/storage"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 	"gotest.tools/assert"
 )
 
-var (
-	srv *httptest.Server
-)
-
 const (
-	session = "/wd/hub/session"
+	session   = "/wd/hub/session"
+	hubStatus = "/wd/hub/status"
+	status    = "/status"
 )
 
 func TestNewSessionRequestErrors(t *testing.T) {
@@ -92,18 +91,16 @@ func TestNewSessionRequestErrors(t *testing.T) {
 func TestNewSessionOnPlatformError(t *testing.T) {
 
 	tests := map[string]struct {
-		reqBody               io.Reader
-		platformFailure       bool
-		platformFailureReason error
-		respCode              int
-		respBody              string
+		reqBody  io.Reader
+		err      error
+		respCode int
+		respBody string
 	}{
 		"Verify new session call when browser not started": {
-			reqBody:               bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"68.0"}]}}`)),
-			platformFailure:       true,
-			platformFailureReason: errors.New("failed to create pod"),
-			respCode:              http.StatusBadRequest,
-			respBody:              `{"code":400,"value":{"message":"failed to create pod"}}`,
+			reqBody:  bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"68.0"}]}}`)),
+			err:      errors.New("failed to create pod"),
+			respCode: http.StatusBadRequest,
+			respBody: `{"code":400,"value":{"message":"failed to create pod"}}`,
 		},
 	}
 
@@ -111,8 +108,7 @@ func TestNewSessionOnPlatformError(t *testing.T) {
 		t.Logf("TC: %s", name)
 
 		client := &PlatformMock{
-			shouldFail:    test.platformFailure,
-			failureReason: test.platformFailureReason,
+			err: test.err,
 		}
 		app := initApp(client)
 		req, err := http.NewRequest(http.MethodPost, session, test.reqBody)
@@ -143,18 +139,14 @@ func TestNewSessionOnPlatformError(t *testing.T) {
 func TestNewSessionOnBrowserNetworkError(t *testing.T) {
 
 	tests := map[string]struct {
-		reqBody               io.Reader
-		platformFailure       bool
-		platformFailureReason error
-		respCode              int
-		respBody              string
+		reqBody  io.Reader
+		respCode int
+		respBody string
 	}{
 		"Verify new session call to browser is not responding": {
-			reqBody:               bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"68.0"}]}}`)),
-			platformFailure:       false,
-			platformFailureReason: nil,
-			respCode:              http.StatusInternalServerError,
-			respBody:              `{"code":500,"value":{"message":"New session attempts retry count exceeded"}}`,
+			reqBody:  bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"68.0"}]}}`)),
+			respCode: http.StatusInternalServerError,
+			respBody: `{"code":500,"value":{"message":"New session attempts retry count exceeded"}}`,
 		},
 	}
 
@@ -162,8 +154,6 @@ func TestNewSessionOnBrowserNetworkError(t *testing.T) {
 		t.Logf("TC: %s", name)
 
 		client := &PlatformMock{
-			shouldFail:    test.platformFailure,
-			failureReason: test.platformFailureReason,
 			service: &platform.Service{
 				SessionID:  "sessionID",
 				CancelFunc: func() {},
@@ -201,18 +191,14 @@ func TestNewSessionOnBrowserNetworkError(t *testing.T) {
 
 func TestNewSessionOnCancelRequest(t *testing.T) {
 	tests := map[string]struct {
-		reqBody               io.Reader
-		platformFailure       bool
-		platformFailureReason error
-		respCode              int
-		respBody              string
+		reqBody  io.Reader
+		respCode int
+		respBody string
 	}{
 		"Verify new session on cancel request": {
-			reqBody:               bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"68.0"}]}}`)),
-			platformFailure:       false,
-			platformFailureReason: nil,
-			respCode:              http.StatusOK,
-			respBody:              "",
+			reqBody:  bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"68.0"}]}}`)),
+			respCode: http.StatusOK,
+			respBody: "",
 		},
 	}
 	for name, test := range tests {
@@ -229,8 +215,6 @@ func TestNewSessionOnCancelRequest(t *testing.T) {
 		u, _ := url.Parse(s.URL)
 
 		platform := &PlatformMock{
-			shouldFail:    test.platformFailure,
-			failureReason: test.platformFailureReason,
 			service: &platform.Service{
 				SessionID:  "sessionID",
 				CancelFunc: func() {},
@@ -268,18 +252,14 @@ func TestNewSessionOnCancelRequest(t *testing.T) {
 
 func TestNewSessionOnRequestTimeout(t *testing.T) {
 	tests := map[string]struct {
-		reqBody               io.Reader
-		platformFailure       bool
-		platformFailureReason error
-		respCode              int
-		respBody              string
+		reqBody  io.Reader
+		respCode int
+		respBody string
 	}{
 		"Verify new session on cancel request": {
-			reqBody:               bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"68.0"}]}}`)),
-			platformFailure:       false,
-			platformFailureReason: nil,
-			respCode:              http.StatusInternalServerError,
-			respBody:              `{"code":500,"value":{"message":"New session attempts retry count exceeded"}}`,
+			reqBody:  bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"68.0"}]}}`)),
+			respCode: http.StatusInternalServerError,
+			respBody: `{"code":500,"value":{"message":"New session attempts retry count exceeded"}}`,
 		},
 	}
 	for name, test := range tests {
@@ -297,8 +277,6 @@ func TestNewSessionOnRequestTimeout(t *testing.T) {
 		u, _ := url.Parse(s.URL)
 
 		platform := &PlatformMock{
-			shouldFail:    test.platformFailure,
-			failureReason: test.platformFailureReason,
 			service: &platform.Service{
 				SessionID:  "sessionID",
 				CancelFunc: func() {},
@@ -336,18 +314,14 @@ func TestNewSessionOnRequestTimeout(t *testing.T) {
 func TestNewSessionResponseCodeError(t *testing.T) {
 
 	tests := map[string]struct {
-		reqBody               io.Reader
-		platformFailure       bool
-		platformFailureReason error
-		respCode              int
-		respBody              string
+		reqBody  io.Reader
+		respCode int
+		respBody string
 	}{
 		"Verify new session call to browser response code error": {
-			reqBody:               bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"68.0"}]}}`)),
-			platformFailure:       false,
-			platformFailureReason: nil,
-			respCode:              http.StatusInternalServerError,
-			respBody:              `{"code":500,"value":{"message":"Failed to read service response"}}`,
+			reqBody:  bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"68.0"}]}}`)),
+			respCode: http.StatusInternalServerError,
+			respBody: `{"code":500,"value":{"message":"Failed to read service response"}}`,
 		},
 	}
 
@@ -364,8 +338,6 @@ func TestNewSessionResponseCodeError(t *testing.T) {
 		u, _ := url.Parse(s.URL)
 
 		platform := &PlatformMock{
-			shouldFail:    test.platformFailure,
-			failureReason: test.platformFailureReason,
 			service: &platform.Service{
 				SessionID:  "sessionID",
 				CancelFunc: func() {},
@@ -400,18 +372,14 @@ func TestNewSessionResponseCodeError(t *testing.T) {
 func TestNewSessionResponseBodyError(t *testing.T) {
 
 	tests := map[string]struct {
-		reqBody               io.Reader
-		platformFailure       bool
-		platformFailureReason error
-		respCode              int
-		respBody              string
+		reqBody  io.Reader
+		respCode int
+		respBody string
 	}{
 		"Verify new session call to browser response error": {
-			reqBody:               bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"68.0"}]}}`)),
-			platformFailure:       false,
-			platformFailureReason: nil,
-			respCode:              http.StatusInternalServerError,
-			respBody:              `{"code":500,"value":{"message":"Failed to read service response"}}`,
+			reqBody:  bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"68.0"}]}}`)),
+			respCode: http.StatusInternalServerError,
+			respBody: `{"code":500,"value":{"message":"Failed to read service response"}}`,
 		},
 	}
 
@@ -428,8 +396,6 @@ func TestNewSessionResponseBodyError(t *testing.T) {
 		u, _ := url.Parse(s.URL)
 
 		platform := &PlatformMock{
-			shouldFail:    test.platformFailure,
-			failureReason: test.platformFailureReason,
 			service: &platform.Service{
 				SessionID:  "sessionID",
 				CancelFunc: func() {},
@@ -464,18 +430,14 @@ func TestNewSessionResponseBodyError(t *testing.T) {
 func TestNewSessionCreated(t *testing.T) {
 
 	tests := map[string]struct {
-		reqBody               io.Reader
-		platformFailure       bool
-		platformFailureReason error
-		respCode              int
-		respBody              string
+		reqBody  io.Reader
+		respCode int
+		respBody string
 	}{
 		"Verify new session created": {
-			reqBody:               bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"68.0"}]}}`)),
-			platformFailure:       false,
-			platformFailureReason: nil,
-			respCode:              http.StatusOK,
-			respBody:              `{"sessionID":"223a259c-50e9-4d18-82bc-26a0cc8cb85f"}`,
+			reqBody:  bytes.NewReader([]byte(`{"capabilities":{"firstMatch":[{"browserName":"chrome", "browserVersion":"68.0"}]}}`)),
+			respCode: http.StatusOK,
+			respBody: `{"sessionID":"223a259c-50e9-4d18-82bc-26a0cc8cb85f"}`,
 		},
 	}
 
@@ -493,8 +455,6 @@ func TestNewSessionCreated(t *testing.T) {
 		u, _ := url.Parse(s.URL)
 
 		platform := &PlatformMock{
-			shouldFail:    test.platformFailure,
-			failureReason: test.platformFailureReason,
 			service: &platform.Service{
 				SessionID:  "sessionID",
 				CancelFunc: func() {},
@@ -526,6 +486,89 @@ func TestNewSessionCreated(t *testing.T) {
 
 }
 
+func TestHandleHubStatus(t *testing.T) {
+	tests := map[string]struct {
+		respCode int
+		respBody string
+		stats    *storage.Storage
+	}{
+		"Verify hub status when no active session present": {
+			respCode: http.StatusOK,
+			respBody: `{"value":{"message":"selenosis up and running","ready":0}}`,
+			stats:    storage.New(),
+		},
+	}
+
+	for name, test := range tests {
+		t.Logf("TC: %s", name)
+
+		client := &PlatformMock{
+			stats: test.stats,
+		}
+		app := initApp(client)
+		req, err := http.NewRequest(http.MethodGet, hubStatus, nil)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rr := httptest.NewRecorder()
+		app.HandleHubStatus(rr, req)
+
+		res := rr.Result()
+		defer res.Body.Close()
+
+		b, err := ioutil.ReadAll(res.Body)
+		if err != nil {
+			t.Fatalf("could not read response: %v", err)
+		}
+
+		body := string(bytes.TrimSpace(b))
+
+		assert.Equal(t, test.respCode, res.StatusCode)
+		assert.Equal(t, test.respBody, body)
+	}
+
+}
+
+func TestHandleStatus(t *testing.T) {
+	tests := map[string]struct {
+		respBody string
+	}{
+		"Verify status when no active session running": {
+			respBody: `{"status":200,"version":"","selenosis":{"total":0,"active":0,"pending":0,"config":{"chrome":["68.0","86.0"],"firefox":["45.0","47.0"],"opera":["66.0","71.0"]}}}`,
+		},
+	}
+
+	for name, test := range tests {
+		t.Logf("TC: %s", name)
+
+		client := &PlatformMock{}
+		app := initApp(client)
+		req, err := http.NewRequest(http.MethodGet, status, nil)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rr := httptest.NewRecorder()
+		app.HandleStatus(rr, req)
+
+		res := rr.Result()
+		defer res.Body.Close()
+
+		b, err := ioutil.ReadAll(res.Body)
+		if err != nil {
+			t.Fatalf("could not read response: %v", err)
+		}
+
+		body := string(bytes.TrimSpace(b))
+
+		assert.Equal(t, test.respBody, body)
+	}
+
+}
+
 func initApp(p *PlatformMock) *App {
 	logger := &logrus.Logger{}
 	client := NewPlatformMock(p)
@@ -543,9 +586,9 @@ func initApp(p *PlatformMock) *App {
 }
 
 type PlatformMock struct {
-	shouldFail    bool
-	failureReason error
-	service       *platform.Service
+	err     error
+	service *platform.Service
+	stats   *storage.Storage
 }
 
 func NewPlatformMock(f *PlatformMock) platform.Platform {
@@ -553,17 +596,17 @@ func NewPlatformMock(f *PlatformMock) platform.Platform {
 }
 
 func (p *PlatformMock) Create(*platform.ServiceSpec) (*platform.Service, error) {
-	if !p.shouldFail {
-		return p.service, nil
+	if p.err != nil {
+		return nil, p.err
 	}
-	return nil, p.failureReason
+	return p.service, nil
 
 }
 func (p *PlatformMock) Delete(string) error {
-	if !p.shouldFail {
-		return nil
+	if p.err != nil {
+		return p.err
 	}
-	return p.failureReason
+	return nil
 }
 func (p *PlatformMock) List() ([]*platform.Service, error) {
 	return nil, nil

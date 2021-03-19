@@ -25,17 +25,19 @@ type Spec struct {
 	Affinity     apiv1.Affinity             `yaml:"affinity,omitempty" json:"affinity,omitempty"`
 	DNSConfig    apiv1.PodDNSConfig         `yaml:"dnsConfig,omitempty" json:"dnsConfig,omitempty"`
 	Tolerations  []apiv1.Toleration         `yaml:"tolerations,omitempty" json:"tolerations,omitempty"`
+	VolumeMounts []apiv1.VolumeMount        `yaml:"volumeMounts,omitempty" json:"volumeMounts,omitempty"`
 }
 
 //BrowserSpec describes settings for Service
 type BrowserSpec struct {
-	BrowserName    string `yaml:"-" json:"-"`
-	BrowserVersion string `yaml:"-" json:"-"`
-	Image          string `yaml:"image" json:"image"`
-	Path           string `yaml:"path" json:"path"`
-	Privileged     bool   `yaml:"privileged" json:"privileged"`
-	Meta           Meta   `yaml:"meta" json:"meta"`
-	Spec           Spec   `yaml:"spec" json:"spec"`
+	BrowserName    string         `yaml:"-" json:"-"`
+	BrowserVersion string         `yaml:"-" json:"-"`
+	Image          string         `yaml:"image" json:"image"`
+	Path           string         `yaml:"path" json:"path"`
+	Privileged     bool           `yaml:"privileged" json:"privileged"`
+	Meta           Meta           `yaml:"meta" json:"meta"`
+	Spec           Spec           `yaml:"spec" json:"spec"`
+	Volumes        []apiv1.Volume `yaml:"volumes,omitempty" json:"volumes,omitempty"`
 }
 
 //ServiceSpec describes data requred for creating service
