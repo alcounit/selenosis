@@ -130,7 +130,7 @@ opera:
 Each browser type can have default spec/meta sections, same is applied to individual browser versions. Some properties like annotations and labels will be merged to specific browser version, others like resources stay unchanged(can't be overriden). Specific browser version properties have a higher priority on merge.
 ### Managing Resources
 [CPU and Memory limits](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/) can be set globally to specific browser type or individually to specific browser version. </br>
-In the example below chrome browser v86.0 pod will be launched with resource limits that are set globally and browser v85.0 pod will be launched with individual resource limits set that are set in browser version spec section.
+In the example below chrome browser v86.0 pod will be launched with resource limits that are set globally and browser v85.0 pod will be launched with individual resource limits that are set in browser version spec section.
 
 ``` json
 {
@@ -202,7 +202,7 @@ chrome:
 ```
 
 ### Labels and annotations
-[Labels](https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/) and [annotations](https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/) are supported by config and can be set globally or individually depends on your requirements.
+[Labels](https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/) and [annotations](https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/) are supported by config and can be added globally or individually depends on your requirements.
 ``` json
 {
   "chrome": {
@@ -348,14 +348,14 @@ You can set [environment variables](https://kubernetes.io/docs/tasks/inject-data
     "versions": {
       "85.0": {
         "image": "selenoid/vnc:chrome_85.0",
-		"spec": {
-		  "env": [
-			{
-			  "name": "SCREEN_RESOLUTION",
-			  "value": "1024x768x24"
-			}
-		  ]
-		}
+        "spec": {
+          "env": [
+            {
+              "name": "SCREEN_RESOLUTION",
+              "value": "1024x768x24"
+            }
+          ]
+        }
       },
       "86.0": {
         "image": "selenoid/vnc:chrome_86.0"
