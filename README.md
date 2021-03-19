@@ -432,14 +432,12 @@ If you need a directory with a data that is accessible to the browser use [volum
   "chrome": {
     "defaultVersion": "85.0",
     "path": "/",
-    "spec": {
-      "volumes": [
-        {
-          "name": "simple-vol",
-          "emptyDir": {}
-        }
-      ]
-    },
+    "volumes": [
+      {
+        "name": "simple-vol",
+        "emptyDir": {}
+      }
+    ],
     "versions": {
       "85.0": {
         "image": "selenoid/vnc:chrome_85.0",
@@ -465,10 +463,9 @@ If you need a directory with a data that is accessible to the browser use [volum
 chrome:
   defaultVersion: '85.0'
   path: /
-  spec:
-    volumes:
-      - name: simple-vol
-        emptyDir: {}
+  volumes:
+    - name: simple-vol
+      emptyDir: {}
   versions:
     '85.0':
       image: 'selenoid/vnc:chrome_85.0'

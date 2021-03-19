@@ -32,9 +32,9 @@
             value: 'true'    
           nodeSelector:
             nodeType: N2D
-          volumes:
-            - name: simple-vol
-              emptyDir: {}
+        volumes:
+          - name: simple-vol
+            emptyDir: {}
         versions: 
           '68.0':
             image: selenoid/vnc:chrome_68.0

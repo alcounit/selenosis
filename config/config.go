@@ -12,6 +12,7 @@ import (
 	"github.com/alcounit/selenosis/platform"
 	"github.com/alcounit/selenosis/tools"
 	"github.com/imdario/mergo"
+	apiv1 "k8s.io/api/core/v1"
 )
 
 //Layout ...
@@ -21,6 +22,7 @@ type Layout struct {
 	Path           string                           `yaml:"path" json:"path"`
 	DefaultVersion string                           `yaml:"defaultVersion" json:"defaultVersion"`
 	Versions       map[string]*platform.BrowserSpec `yaml:"versions" json:"versions"`
+	Volumes        []apiv1.Volume                   `yaml:"volumes,omitempty" json:"volumes,omitempty"`
 }
 
 //BrowsersConfig ...
@@ -131,6 +133,7 @@ func readConfig(configFile string) (map[string]*Layout, error) {
 			container.Path = layout.Path
 			container.Meta.Annotations = merge(container.Meta.Annotations, layout.Meta.Annotations)
 			container.Meta.Labels = merge(container.Meta.Labels, layout.Meta.Labels)
+			container.Volumes = layout.Volumes
 
 			if err := mergo.Merge(&container.Spec, spec); err != nil {
 				return nil, fmt.Errorf("merge error %v", err)
