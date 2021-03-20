@@ -68,7 +68,8 @@ kubectl scale deployment selenosis -n selenosis --replicas=3
 ```
 
 ### Stateless
-All connections to the browsers are automatically assigned via [headless service](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/).
+When a new session request is received, selenosis creates a pod with 2 containers, one is a browser and the second is a lightweight sidecar called [seleniferous](https://github.com/alcounit/seleniferous). 
+Seleniferous proxies all requests to the browser and replaces original sessionId returned by the browser with pod hostname. All other requests received by selenosis just proxied to the existing pod by using sessionId and [headless service](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/) as a hostname.
 
 ### Hot config reload
 Selenosis supports hot config reload, to do so update you configMap
