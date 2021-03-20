@@ -82,11 +82,12 @@ Deployment steps and minifests you can find in [selenosis-deploy](https://github
 
 
 ## Configuration
-Selenosis can run any docker image with browser but best work with images debeloped by Aerokube team:
+Selenosis can run any docker image with browser but best work with images debeloped by Aerokube:
 <br>
 * [Android](https://aerokube.com/images/latest/#_android)
 * [Chrome](https://aerokube.com/images/latest/#_chrome)
 * [Firefox](https://aerokube.com/images/latest/#_firefox)
+* [Microsoft Edge](https://aerokube.com/images/latest/#_microsoft_edge)
 * [Opera](https://aerokube.com/images/latest/#_opera)
 
 ### Basic config
@@ -296,7 +297,7 @@ chrome:
 ```
 
 ### Adding Host Aliases
-You can add the host name and aliases to /etc/hosts file by using [hostAliases](https://kubernetes.io/docs/concepts/services-networking/add-entries-to-pod-etc-hosts-with-host-aliases/) property.
+You can add the [host name and aliases](https://kubernetes.io/docs/concepts/services-networking/add-entries-to-pod-etc-hosts-with-host-aliases/) to /etc/hosts file by using hostAliases property.
 ``` json
 {
   "chrome": {
@@ -426,7 +427,7 @@ chrome:
 ```
 
 ### Mounting volumes to a browser pod
-If you need a directory with a data that is accessible to the browser use [volume and volumeMount](https://kubernetes.io/docs/concepts/storage/volumes/) properties in your config
+If you need a [directory](https://kubernetes.io/docs/concepts/storage/volumes/) with a data that is accessible to the browser use volume and volumeMount properties in your config
 ``` json
 {
   "chrome": {
@@ -527,7 +528,7 @@ chrome:
 ```
 
 ### Node affinity
-To attract browser pods to set of nodes use [tolerations](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/) property
+To attract browser pods to [set of nodes](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/) use tolerations property
 ``` json
 {
   "chrome": {
