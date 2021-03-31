@@ -59,13 +59,31 @@ type Service struct {
 	Uptime     string            `json:"uptime"`
 }
 
+type Quota struct {
+	Name            string `json:"name"`
+	CurrentMaxLimit int64  `json:"totalLimit"`
+}
+
+type PlatformState struct {
+	Services []*Service
+	Workers  []*Worker
+}
+
+type Worker struct {
+	Name    string            `json:"name"`
+	Labels  map[string]string `json:"labels"`
+	Status  ServiceStatus     `json:"-"`
+	Started time.Time         `json:"started"`
+	Uptime  string            `json:"uptime"`
+}
+
 //ServiceStatus ...
 type ServiceStatus string
 
 //Event ...
 type Event struct {
-	Type    EventType
-	Service *Service
+	Type           EventType
+	PlatformObject interface{}
 }
 
 //EventType ...
@@ -83,9 +101,20 @@ const (
 
 //Platform ...
 type Platform interface {
+	Service() ServiceInterface
+	Quota() QuotaInterface
+	State() (PlatformState, error)
+	Watch() <-chan Event
+}
+
+type ServiceInterface interface {
 	Create(*ServiceSpec) (*Service, error)
 	Delete(string) error
-	List() ([]*Service, error)
-	Watch() <-chan Event
 	Logs(context.Context, string) (io.ReadCloser, error)
+}
+
+type QuotaInterface interface {
+	Create(int64) (*Quota, error)
+	Get() (*Quota, error)
+	Update(int64) (*Quota, error)
 }

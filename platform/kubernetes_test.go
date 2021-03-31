@@ -181,9 +181,13 @@ func TestErrorsOnServiceCreate(t *testing.T) {
 		client := &Client{
 			ns:        test.ns,
 			clientset: mock,
+			service: &service{
+				ns:        test.ns,
+				clientset: mock,
+			},
 		}
 
-		_, err := client.Create(test.layout)
+		_, err := client.Service().Create(test.layout)
 
 		assert.Equal(t, test.err.Error(), err.Error())
 	}
@@ -224,6 +228,10 @@ func TestPodDelete(t *testing.T) {
 		client := &Client{
 			ns:        test.ns,
 			clientset: mock,
+			service: &service{
+				ns:        test.ns,
+				clientset: mock,
+			},
 		}
 
 		ctx := context.Background()
@@ -248,7 +256,7 @@ func TestPodDelete(t *testing.T) {
 			t.Fatalf("failed to create fake pod: %v", err)
 		}
 
-		err = client.Delete(test.deletePod)
+		err = client.Service().Delete(test.deletePod)
 
 		if err != nil {
 			assert.Equal(t, test.err.Error(), err.Error())
@@ -282,7 +290,7 @@ func TestListPods(t *testing.T) {
 			podNames:     []string{"chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911", "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144912", "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144913"},
 			podPhase:     []apiv1.PodPhase{apiv1.PodRunning, apiv1.PodPending, apiv1.PodFailed},
 			podStatus:    []ServiceStatus{Running, Pending, Unknown},
-			labels:       map[string]string{"type": "browser"},
+			labels:       map[string]string{"selenosis.app.type": "browser"},
 			browserImage: "selenoid/vnc:chrome_85.0",
 			proxyImage:   "alcounit/seleniferous:latest",
 		},
@@ -329,12 +337,12 @@ func TestListPods(t *testing.T) {
 			}
 		}
 
-		pods, err := client.List()
+		state, err := client.State()
 		if err != nil {
 			t.Fatalf("Failed to list pods %v", err)
 		}
 
-		for i, pod := range pods {
+		for i, pod := range state.Services {
 			assert.Equal(t, pod.SessionID, test.podNames[i])
 
 			u := &url.URL{

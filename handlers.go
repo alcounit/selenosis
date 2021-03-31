@@ -32,26 +32,6 @@ var (
 	}
 )
 
-//CheckLimit ...
-func (app *App) CheckLimit(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		logger := app.logger.WithFields(logrus.Fields{
-			"request_id": uuid.New(),
-			"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
-		})
-
-		total := app.stats.Len()
-
-		if total >= app.sessionLimit {
-			logger.Warnf("active session limit reached: total %d, limit %d", total, app.sessionLimit)
-			tools.JSONError(w, "session limit reached", http.StatusInternalServerError)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	}
-}
-
 //HandleSession ...
 func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
@@ -122,7 +102,7 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 
 	logger.WithField("time_elapsed", tools.TimeElapsed(start)).Infof("starting browser from image: %s", template.Template.Image)
 
-	service, err := app.client.Create(template)
+	service, err := app.client.Service().Create(template)
 	if err != nil {
 		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("failed to start browser: %v", err)
 		tools.JSONError(w, err.Error(), http.StatusBadRequest)
@@ -238,7 +218,7 @@ func (app *App) HandleHubStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 
-	active, pending := getSessionStats(app.stats.List())
+	active, pending := getSessionStats(app.stats.Session().List())
 	total := len(active) + len(pending)
 
 	json.NewEncoder(w).Encode(
@@ -341,7 +321,7 @@ func (app *App) HandleLogs() websocket.Handler {
 		})
 		logger.Infof("stream logs request: %s", fmt.Sprintf("%s.%s", sessionID, app.serviceName))
 
-		conn, err := app.client.Logs(wsconn.Request().Context(), sessionID)
+		conn, err := app.client.Service().Logs(wsconn.Request().Context(), sessionID)
 		if err != nil {
 			logger.Errorf("stream logs error: %v", err)
 			return
@@ -378,7 +358,7 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		Selenosis Status `json:"selenosis,omitempty"`
 	}
 
-	active, pending := getSessionStats(app.stats.List())
+	active, pending := getSessionStats(app.stats.Session().List())
 	json.NewEncoder(w).Encode(
 		Response{
 			Status:  http.StatusOK,
