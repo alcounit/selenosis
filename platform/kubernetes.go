@@ -689,9 +689,7 @@ func getVolumes(volumes []apiv1.Volume) []apiv1.Volume {
 
 func getCapabilities(caps []apiv1.Capability) *apiv1.Capabilities {
 	if len(caps) > 0 {
-		capabilities := &apiv1.Capabilities{}
-		capabilities.Add = caps
-		return capabilities
+		return &apiv1.Capabilities{Add: caps}
 	}
 	return nil
 }
