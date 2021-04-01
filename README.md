@@ -589,7 +589,7 @@ chrome:
       image: selenoid/vnc:chrome_86.0
 ```
 
-## Custom UID and GID for browser pod
+### Custom UID and GID for browser pod
 Browser pod can be run with custom UID and GID. To do so set runAs property for specific browser globally or per each browser version.
 ``` json
 {
@@ -634,7 +634,7 @@ chrome:
       image: selenoid/vnc:chrome_86.0
 ```
 
-## Custom Kernel Capabilities
+### Custom Kernel Capabilities
 In some cases you may need to run browser container with custom Linux capabilities. To do so set kernelCaps property for specific browser globally or per each browser version.
 ``` json
 {
