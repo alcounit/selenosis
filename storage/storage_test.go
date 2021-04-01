@@ -21,8 +21,8 @@ func TestNew(t *testing.T) {
 
 		strg := New()
 
-		assert.Equal(t, strg.Session().Len(), test.len)
-		assert.Equal(t, strg.Worker().Len(), test.len)
+		assert.Equal(t, strg.Sessions().Len(), test.len)
+		assert.Equal(t, strg.Workers().Len(), test.len)
 	}
 }
 
@@ -50,9 +50,9 @@ func TestPut(t *testing.T) {
 	for name, test := range tests {
 		t.Logf("TC: %s", name)
 
-		test.strg.Session().Put(test.session, test.service)
+		test.strg.Sessions().Put(test.session, test.service)
 
-		assert.Equal(t, test.strg.Session().Len(), test.len)
+		assert.Equal(t, test.strg.Sessions().Len(), test.len)
 	}
 }
 
@@ -86,13 +86,13 @@ func TestDelete(t *testing.T) {
 	for name, test := range tests {
 		t.Logf("TC: %s", name)
 
-		test.strg.Session().Put(test.sessionToAdd, test.service)
+		test.strg.Sessions().Put(test.sessionToAdd, test.service)
 
-		assert.Equal(t, test.strg.Session().Len(), test.lenOnAdd)
+		assert.Equal(t, test.strg.Sessions().Len(), test.lenOnAdd)
 
-		test.strg.Session().Delete(test.sessionToDelete)
+		test.strg.Sessions().Delete(test.sessionToDelete)
 
-		assert.Equal(t, test.strg.Session().Len(), test.lenOnDelete)
+		assert.Equal(t, test.strg.Sessions().Len(), test.lenOnDelete)
 	}
 }
 
@@ -116,12 +116,12 @@ func TestList(t *testing.T) {
 	for name, test := range tests {
 		t.Logf("TC: %s", name)
 
-		test.strg.Session().Put(test.session, test.service)
+		test.strg.Sessions().Put(test.session, test.service)
 
-		for _, svc := range test.strg.Session().List() {
+		for _, svc := range test.strg.Sessions().List() {
 			assert.Equal(t, svc.SessionID, test.service.SessionID)
 		}
 
-		assert.Equal(t, test.strg.Session().Len(), test.len)
+		assert.Equal(t, test.strg.Sessions().Len(), test.len)
 	}
 }

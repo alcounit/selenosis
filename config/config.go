@@ -23,6 +23,8 @@ type Layout struct {
 	DefaultVersion string                           `yaml:"defaultVersion" json:"defaultVersion"`
 	Versions       map[string]*platform.BrowserSpec `yaml:"versions" json:"versions"`
 	Volumes        []apiv1.Volume                   `yaml:"volumes,omitempty" json:"volumes,omitempty"`
+	Capabilities   []apiv1.Capability               `yaml:"kernelCaps,omitempty" json:"kernelCaps,omitempty"`
+	RunAs          platform.RunAsOptions            `yaml:"runAs,omitempty" json:"runAs,omitempty"`
 }
 
 //BrowsersConfig ...
@@ -134,8 +136,13 @@ func readConfig(configFile string) (map[string]*Layout, error) {
 			container.Meta.Annotations = merge(container.Meta.Annotations, layout.Meta.Annotations)
 			container.Meta.Labels = merge(container.Meta.Labels, layout.Meta.Labels)
 			container.Volumes = layout.Volumes
+			container.Capabilities = append(container.Capabilities, layout.Capabilities...)
 
 			if err := mergo.Merge(&container.Spec, spec); err != nil {
+				return nil, fmt.Errorf("merge error %v", err)
+			}
+
+			if err := mergo.Merge(&container.RunAs, layout.RunAs); err != nil {
 				return nil, fmt.Errorf("merge error %v", err)
 			}
 		}

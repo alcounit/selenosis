@@ -403,12 +403,8 @@ func (cl *service) Create(layout *ServiceSpec) (*Service, error) {
 					Name:  "browser",
 					Image: layout.Template.Image,
 					SecurityContext: &apiv1.SecurityContext{
-						Privileged: &layout.Template.Privileged,
-						Capabilities: &apiv1.Capabilities{
-							Add: []apiv1.Capability{
-								"SYS_ADMIN",
-							},
-						},
+						Privileged:   layout.Template.Privileged,
+						Capabilities: getCapabilities(layout.Template.Capabilities),
 					},
 					Env:             layout.Template.Spec.EnvVars,
 					Ports:           getBrowserPorts(),
@@ -430,10 +426,11 @@ func (cl *service) Create(layout *ServiceSpec) (*Service, error) {
 			NodeSelector:     layout.Template.Spec.NodeSelector,
 			HostAliases:      layout.Template.Spec.HostAliases,
 			RestartPolicy:    apiv1.RestartPolicyNever,
-			Affinity:         &layout.Template.Spec.Affinity,
-			DNSConfig:        &layout.Template.Spec.DNSConfig,
+			Affinity:         layout.Template.Spec.Affinity,
+			DNSConfig:        layout.Template.Spec.DNSConfig,
 			Tolerations:      layout.Template.Spec.Tolerations,
 			ImagePullSecrets: getImagePullSecretList(cl.imagePullSecretName),
+			SecurityContext:  getSecurityContext(layout.Template.RunAs),
 		},
 	}
 
@@ -543,6 +540,7 @@ type quota struct {
 	clientset kubernetes.Interface
 }
 
+//Create ...
 func (cl quota) Create(limit int64) (*Quota, error) {
 	context := context.Background()
 	quantity, err := resource.ParseQuantity(strconv.FormatInt(limit, 10))
@@ -581,6 +579,7 @@ func (cl quota) Get() (*Quota, error) {
 	}, nil
 }
 
+//Update ...
 func (cl quota) Update(limit int64) (*Quota, error) {
 	context := context.Background()
 	quantity, err := resource.ParseQuantity(strconv.FormatInt(limit, 10))
@@ -686,6 +685,26 @@ func getVolumes(volumes []apiv1.Volume) []apiv1.Volume {
 		v = append(v, volumes...)
 	}
 	return v
+}
+
+func getCapabilities(caps []apiv1.Capability) *apiv1.Capabilities {
+	if len(caps) > 0 {
+		capabilities := &apiv1.Capabilities{}
+		capabilities.Add = caps
+		return capabilities
+	}
+	return nil
+}
+
+func getSecurityContext(runAsOptions RunAsOptions) *apiv1.PodSecurityContext {
+	secContext := &apiv1.PodSecurityContext{}
+	if runAsOptions.RunAsUser != nil {
+		secContext.RunAsUser = runAsOptions.RunAsUser
+	}
+	if runAsOptions.RunAsGroup != nil {
+		secContext.RunAsGroup = runAsOptions.RunAsGroup
+	}
+	return secContext
 }
 
 func waitForService(u url.URL, t time.Duration) error {

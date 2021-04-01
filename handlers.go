@@ -218,7 +218,7 @@ func (app *App) HandleHubStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 
-	active, pending := getSessionStats(app.stats.Session().List())
+	active, pending := getSessionStats(app.stats.Sessions().List())
 	total := len(active) + len(pending)
 
 	json.NewEncoder(w).Encode(
@@ -358,7 +358,7 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		Selenosis Status `json:"selenosis,omitempty"`
 	}
 
-	active, pending := getSessionStats(app.stats.Session().List())
+	active, pending := getSessionStats(app.stats.Sessions().List())
 	json.NewEncoder(w).Encode(
 		Response{
 			Status:  http.StatusOK,

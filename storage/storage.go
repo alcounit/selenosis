@@ -110,15 +110,15 @@ func New() *Storage {
 	}
 }
 
-//Session ...
-func (s *Storage) Session() *sessions {
+//Sessions ...
+func (s *Storage) Sessions() *sessions {
 	s.Lock()
 	defer s.Unlock()
 	return s.sessions
 }
 
-//Worker ...
-func (s *Storage) Worker() *workers {
+//Workers ...
+func (s *Storage) Workers() *workers {
 	s.Lock()
 	defer s.Unlock()
 	return s.workers

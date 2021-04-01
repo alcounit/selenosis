@@ -48,16 +48,16 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 	}
 
 	for _, service := range state.Services {
-		storage.Session().Put(service.SessionID, service)
+		storage.Sessions().Put(service.SessionID, service)
 	}
 
 	for _, worker := range state.Workers {
-		storage.Worker().Put(worker.Name, worker)
+		storage.Workers().Put(worker.Name, worker)
 	}
 
 	limit := cfg.SessionLimit
 	currentTotal := func() int64 {
-		return int64(storage.Worker().Len() + limit)
+		return int64(storage.Workers().Len() + limit)
 	}
 	var quota *platform.Quota
 	if quota, err = client.Quota().Get(); err != nil {
@@ -76,7 +76,7 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 
 	storage.Quota().Put(quota)
 
-	logger.Infof("current cluster state: sessions - %d, workers - %d, session limit - %d", storage.Session().Len(), storage.Worker().Len(), storage.Quota().Get().CurrentMaxLimit)
+	logger.Infof("current cluster state: sessions - %d, workers - %d, session limit - %d", storage.Sessions().Len(), storage.Workers().Len(), limit)
 
 	ch := client.Watch()
 	go func() {
@@ -88,18 +88,18 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 					service := event.PlatformObject.(*platform.Service)
 					switch event.Type {
 					case platform.Added:
-						storage.Session().Put(service.SessionID, service)
+						storage.Sessions().Put(service.SessionID, service)
 					case platform.Updated:
-						storage.Session().Put(service.SessionID, service)
+						storage.Sessions().Put(service.SessionID, service)
 					case platform.Deleted:
-						storage.Session().Delete(service.SessionID)
+						storage.Sessions().Delete(service.SessionID)
 					}
 
 				case *platform.Worker:
 					worker := event.PlatformObject.(*platform.Worker)
 					switch event.Type {
 					case platform.Added:
-						storage.Worker().Put(worker.Name, worker)
+						storage.Workers().Put(worker.Name, worker)
 						result, err := client.Quota().Update(currentTotal())
 						if err != nil {
 							logger.Warnf("failed to update resource quota: %v", err)
@@ -108,7 +108,7 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 						storage.Quota().Put(result)
 						logger.Infof("selenosis worker: %s added, current namespace quota limit: %d", worker.Name, storage.Quota().Get().CurrentMaxLimit)
 					case platform.Deleted:
-						storage.Worker().Delete(worker.Name)
+						storage.Workers().Delete(worker.Name)
 						result, err := client.Quota().Update(currentTotal())
 						if err != nil {
 							logger.Warnf("failed to update resource quota: %v", err)
