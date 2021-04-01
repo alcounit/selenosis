@@ -602,11 +602,11 @@ Browser pod can be run with custom UID and GID. To do so set runAs property for 
     },
     "versions": {
       "85.0": {
-        "image": "selenoid/vnc:chrome_85.0"
-      },
-      "runAs": {
-        "uid": 1001,
-        "gid": 2002
+        "image": "selenoid/vnc:chrome_85.0",
+        "runAs": {
+          "uid": 1001,
+          "gid": 2002
+        }
       },
       "86.0": {
         "image": "selenoid/vnc:chrome_86.0"
@@ -627,9 +627,9 @@ chrome:
   versions:
     '85.0':
       image: selenoid/vnc:chrome_85.0
-    runAs:
-      uid: 1001
-      gid: 2002
+      runAs:
+        uid: 1001
+        gid: 2002
     '86.0':
       image: selenoid/vnc:chrome_86.0
 ```
@@ -644,9 +644,9 @@ In some cases you may need to run browser container with custom Linux capabiliti
     "kernelCaps": ["SYS_ADMIN"],
     "versions": {
       "85.0": {
-        "image": "selenoid/vnc:chrome_85.0"
+        "image": "selenoid/vnc:chrome_85.0",
+        "kernelCaps": ["SYS_ADMIN"]
       },
-      "kernelCaps": ["SYS_ADMIN"],
       "86.0": {
         "image": "selenoid/vnc:chrome_86.0"
       }
@@ -665,8 +665,8 @@ chrome:
   versions:
     '85.0':
       image: selenoid/vnc:chrome_85.0
-    kernelCaps:
-    - SYS_ADMIN
+      kernelCaps:
+      - SYS_ADMIN
     '86.0':
       image: selenoid/vnc:chrome_86.0
 ```
