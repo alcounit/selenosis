@@ -22,22 +22,28 @@ type Spec struct {
 	HostAliases  []apiv1.HostAlias          `yaml:"hostAliases,omitempty" json:"hostAliases,omitempty"`
 	EnvVars      []apiv1.EnvVar             `yaml:"env,omitempty" json:"env,omitempty"`
 	NodeSelector map[string]string          `yaml:"nodeSelector,omitempty" json:"nodeSelector,omitempty"`
-	Affinity     apiv1.Affinity             `yaml:"affinity,omitempty" json:"affinity,omitempty"`
-	DNSConfig    apiv1.PodDNSConfig         `yaml:"dnsConfig,omitempty" json:"dnsConfig,omitempty"`
+	Affinity     *apiv1.Affinity            `yaml:"affinity,omitempty" json:"affinity,omitempty"`
+	DNSConfig    *apiv1.PodDNSConfig        `yaml:"dnsConfig,omitempty" json:"dnsConfig,omitempty"`
 	Tolerations  []apiv1.Toleration         `yaml:"tolerations,omitempty" json:"tolerations,omitempty"`
 	VolumeMounts []apiv1.VolumeMount        `yaml:"volumeMounts,omitempty" json:"volumeMounts,omitempty"`
+}
+type RunAsOptions struct {
+	RunAsUser  *int64 `yaml:"uid,omitempty" json:"uid,omitempty"`
+	RunAsGroup *int64 `yaml:"gid,omitempty" json:"gid,omitempty"`
 }
 
 //BrowserSpec describes settings for Service
 type BrowserSpec struct {
-	BrowserName    string         `yaml:"-" json:"-"`
-	BrowserVersion string         `yaml:"-" json:"-"`
-	Image          string         `yaml:"image" json:"image"`
-	Path           string         `yaml:"path" json:"path"`
-	Privileged     bool           `yaml:"privileged" json:"privileged"`
-	Meta           Meta           `yaml:"meta" json:"meta"`
-	Spec           Spec           `yaml:"spec" json:"spec"`
-	Volumes        []apiv1.Volume `yaml:"volumes,omitempty" json:"volumes,omitempty"`
+	BrowserName    string             `yaml:"-" json:"-"`
+	BrowserVersion string             `yaml:"-" json:"-"`
+	Image          string             `yaml:"image" json:"image"`
+	Path           string             `yaml:"path" json:"path"`
+	Privileged     *bool              `yaml:"privileged" json:"privileged"`
+	Meta           Meta               `yaml:"meta" json:"meta"`
+	Spec           Spec               `yaml:"spec" json:"spec"`
+	Volumes        []apiv1.Volume     `yaml:"volumes,omitempty" json:"volumes,omitempty"`
+	Capabilities   []apiv1.Capability `yaml:"kernelCaps,omitempty" json:"kernelCaps,omitempty"`
+	RunAs          RunAsOptions       `yaml:"runAs,omitempty" json:"runAs,omitempty"`
 }
 
 //ServiceSpec describes data requred for creating service
@@ -59,13 +65,31 @@ type Service struct {
 	Uptime     string            `json:"uptime"`
 }
 
+type Quota struct {
+	Name            string `json:"name"`
+	CurrentMaxLimit int64  `json:"totalLimit"`
+}
+
+type PlatformState struct {
+	Services []*Service
+	Workers  []*Worker
+}
+
+type Worker struct {
+	Name    string            `json:"name"`
+	Labels  map[string]string `json:"labels"`
+	Status  ServiceStatus     `json:"-"`
+	Started time.Time         `json:"started"`
+	Uptime  string            `json:"uptime"`
+}
+
 //ServiceStatus ...
 type ServiceStatus string
 
 //Event ...
 type Event struct {
-	Type    EventType
-	Service *Service
+	Type           EventType
+	PlatformObject interface{}
 }
 
 //EventType ...
@@ -83,9 +107,20 @@ const (
 
 //Platform ...
 type Platform interface {
+	Service() ServiceInterface
+	Quota() QuotaInterface
+	State() (PlatformState, error)
+	Watch() <-chan Event
+}
+
+type ServiceInterface interface {
 	Create(*ServiceSpec) (*Service, error)
 	Delete(string) error
-	List() ([]*Service, error)
-	Watch() <-chan Event
 	Logs(context.Context, string) (io.ReadCloser, error)
+}
+
+type QuotaInterface interface {
+	Create(int64) (*Quota, error)
+	Get() (*Quota, error)
+	Update(int64) (*Quota, error)
 }

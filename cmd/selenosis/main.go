@@ -91,7 +91,7 @@ func command() *cobra.Command {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/wd/hub/session", app.CheckLimit(app.HandleSession)).Methods(http.MethodPost)
+			router.HandleFunc("/wd/hub/session", app.HandleSession).Methods(http.MethodPost)
 			router.PathPrefix("/wd/hub/session/{sessionId}").HandlerFunc(app.HandleProxy)
 			router.HandleFunc("/wd/hub/status", app.HandleHubStatus).Methods(http.MethodGet)
 			router.PathPrefix("/vnc/{sessionId}").Handler(websocket.Handler(app.HandleVNC()))

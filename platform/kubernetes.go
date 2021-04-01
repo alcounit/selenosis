@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"time"
 
 	"github.com/alcounit/selenosis/tools"
 	apiv1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/watch"
@@ -25,6 +27,8 @@ import (
 )
 
 var (
+	label        = "selenosis.app.type"
+	quotaName    = "selenosis-pod-limit"
 	browserPorts = struct {
 		selenium, vnc intstr.IntOrString
 	}{
@@ -43,12 +47,12 @@ var (
 		timeZone:         "TZ",
 	}
 	defaultLabels = struct {
-		serviceType, session string
+		serviceType, appType, session string
 	}{
 		serviceType: "type",
+		appType:     label,
 		session:     "session",
 	}
-	label = "type=browser"
 )
 
 //ClientConfig ...
@@ -64,14 +68,12 @@ type ClientConfig struct {
 
 //Client ...
 type Client struct {
-	ns                  string
-	svc                 string
-	svcPort             intstr.IntOrString
-	imagePullSecretName string
-	proxyImage          string
-	readinessTimeout    time.Duration
-	idleTimeout         time.Duration
-	clientset           kubernetes.Interface
+	ns        string
+	svc       string
+	svcPort   intstr.IntOrString
+	clientset kubernetes.Interface
+	service   ServiceInterface
+	quota     QuotaInterface
 }
 
 //NewClient ...
@@ -87,7 +89,7 @@ func NewClient(c ClientConfig) (Platform, error) {
 		return nil, fmt.Errorf("failed to build client: %v", err)
 	}
 
-	return &Client{
+	service := &service{
 		ns:                  c.Namespace,
 		clientset:           clientset,
 		svc:                 c.Service,
@@ -96,32 +98,215 @@ func NewClient(c ClientConfig) (Platform, error) {
 		proxyImage:          c.ProxyImage,
 		readinessTimeout:    c.ReadinessTimeout,
 		idleTimeout:         c.IdleTimeout,
-	}, nil
-
-}
-
-//NewDefaultClient ...
-func NewDefaultClient(namespace string) (Platform, error) {
-
-	conf, err := rest.InClusterConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to build cluster config: %v", err)
 	}
 
-	clientset, err := kubernetes.NewForConfig(conf)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build client: %v", err)
+	quota := &quota{
+		ns:        c.Namespace,
+		clientset: clientset,
 	}
 
 	return &Client{
-		ns:        namespace,
+		ns:        c.Namespace,
 		clientset: clientset,
+		svc:       c.Service,
+		svcPort:   intstr.FromString(c.ServicePort),
+		service:   service,
+		quota:     quota,
 	}, nil
 
 }
 
+func (cl *Client) Service() ServiceInterface {
+	return cl.service
+}
+
+func (cl *Client) Quota() QuotaInterface {
+	return cl.quota
+}
+
+//List ...
+func (cl *Client) State() (PlatformState, error) {
+	context := context.Background()
+	pods, err := cl.clientset.CoreV1().Pods(cl.ns).List(context, metav1.ListOptions{})
+
+	if err != nil {
+		return PlatformState{}, fmt.Errorf("failed to get pods: %v", err)
+	}
+
+	var services []*Service
+	var workers []*Worker
+
+	for _, pod := range pods.Items {
+		podName := pod.GetName()
+		creationTime := pod.CreationTimestamp.Time
+
+		var status ServiceStatus
+		switch pod.Status.Phase {
+		case apiv1.PodRunning:
+			status = Running
+		case apiv1.PodPending:
+			status = Pending
+		default:
+			status = Unknown
+		}
+
+		if application, ok := pod.GetLabels()[label]; ok {
+			switch application {
+			case "worker":
+				worker := &Worker{
+					Name:    podName,
+					Labels:  pod.Labels,
+					Status:  status,
+					Started: creationTime,
+				}
+				workers = append(workers, worker)
+
+			case "browser":
+				service := &Service{
+					SessionID: podName,
+					URL: &url.URL{
+						Scheme: "http",
+						Host:   tools.BuildHostPort(podName, cl.svc, cl.svcPort.StrVal),
+					},
+					Labels: getRequestedCapabilities(pod.GetAnnotations()),
+					CancelFunc: func() {
+						deletePod(cl.clientset, cl.ns, podName)
+					},
+					Status:  status,
+					Started: creationTime,
+				}
+
+				services = append(services, service)
+			}
+		}
+	}
+
+	return PlatformState{
+		Services: services,
+		Workers:  workers,
+	}, nil
+
+}
+
+//Watch ...
+func (cl *Client) Watch() <-chan Event {
+	ch := make(chan Event)
+	namespace := informers.WithNamespace(cl.ns)
+	labels := informers.WithTweakListOptions(func(list *metav1.ListOptions) {
+		list.LabelSelector = label
+	})
+
+	sharedIformer := informers.NewSharedInformerFactoryWithOptions(cl.clientset, 30*time.Second, namespace, labels)
+
+	podEventFunc := func(obj interface{}, eventType EventType) {
+		if pod, ok := obj.(*apiv1.Pod); ok {
+			if application, ok := pod.GetLabels()[label]; ok {
+				podName := pod.GetName()
+				creationTime := pod.CreationTimestamp.Time
+
+				var status ServiceStatus
+				switch pod.Status.Phase {
+				case apiv1.PodRunning:
+					status = Running
+				case apiv1.PodPending:
+					status = Pending
+				default:
+					status = Unknown
+				}
+
+				switch application {
+				case "worker":
+					ch <- Event{
+						Type: eventType,
+						PlatformObject: &Worker{
+							Name:    podName,
+							Labels:  pod.Labels,
+							Status:  status,
+							Started: creationTime,
+						},
+					}
+
+				case "browser":
+					ch <- Event{
+						Type: eventType,
+						PlatformObject: &Service{
+							SessionID: podName,
+							URL: &url.URL{
+								Scheme: "http",
+								Host:   tools.BuildHostPort(podName, cl.svc, cl.svcPort.StrVal),
+							},
+							Labels: getRequestedCapabilities(pod.GetAnnotations()),
+							CancelFunc: func() {
+								deletePod(cl.clientset, cl.ns, podName)
+							},
+							Status:  status,
+							Started: creationTime,
+						},
+					}
+				}
+			}
+		}
+	}
+	sharedIformer.Core().V1().Pods().Informer().AddEventHandler(
+		cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				podEventFunc(obj, Added)
+			},
+			UpdateFunc: func(old interface{}, new interface{}) {
+				podEventFunc(new, Updated)
+			},
+			DeleteFunc: func(obj interface{}) {
+				podEventFunc(obj, Deleted)
+			},
+		},
+	)
+
+	quotaEventFunc := func(obj interface{}, eventType EventType) {
+		if rq, ok := obj.(*apiv1.ResourceQuota); ok {
+			if _, ok := rq.GetLabels()[label]; ok {
+				rqName := rq.GetName()
+				ch <- Event{
+					Type: eventType,
+					PlatformObject: &Quota{
+						Name:            rqName,
+						CurrentMaxLimit: rq.Spec.Hard.Pods().Value(),
+					},
+				}
+			}
+		}
+	}
+	sharedIformer.Core().V1().ResourceQuotas().Informer().AddEventHandler(
+		cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				quotaEventFunc(obj, Added)
+			},
+			UpdateFunc: func(old interface{}, new interface{}) {
+				quotaEventFunc(new, Updated)
+			},
+			DeleteFunc: func(obj interface{}) {
+				quotaEventFunc(obj, Deleted)
+			},
+		},
+	)
+
+	var neverStop <-chan struct{} = make(chan struct{})
+	sharedIformer.Start(neverStop)
+	return ch
+}
+
+type service struct {
+	ns                  string
+	svc                 string
+	svcPort             intstr.IntOrString
+	imagePullSecretName string
+	proxyImage          string
+	readinessTimeout    time.Duration
+	idleTimeout         time.Duration
+	clientset           kubernetes.Interface
+}
+
 //Create ...
-func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
+func (cl *service) Create(layout *ServiceSpec) (*Service, error) {
 	annontations := map[string]string{
 		defaultsAnnotations.browserName:    layout.Template.BrowserName,
 		defaultsAnnotations.browserVersion: layout.Template.BrowserVersion,
@@ -130,6 +315,7 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 
 	labels := map[string]string{
 		defaultLabels.serviceType: "browser",
+		defaultLabels.appType:     "browser",
 		defaultLabels.session:     layout.SessionID,
 	}
 
@@ -217,12 +403,8 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 					Name:  "browser",
 					Image: layout.Template.Image,
 					SecurityContext: &apiv1.SecurityContext{
-						Privileged: &layout.Template.Privileged,
-						Capabilities: &apiv1.Capabilities{
-							Add: []apiv1.Capability{
-								"SYS_ADMIN",
-							},
-						},
+						Privileged:   layout.Template.Privileged,
+						Capabilities: getCapabilities(layout.Template.Capabilities),
 					},
 					Env:             layout.Template.Spec.EnvVars,
 					Ports:           getBrowserPorts(),
@@ -244,10 +426,11 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 			NodeSelector:     layout.Template.Spec.NodeSelector,
 			HostAliases:      layout.Template.Spec.HostAliases,
 			RestartPolicy:    apiv1.RestartPolicyNever,
-			Affinity:         &layout.Template.Spec.Affinity,
-			DNSConfig:        &layout.Template.Spec.DNSConfig,
+			Affinity:         layout.Template.Spec.Affinity,
+			DNSConfig:        layout.Template.Spec.DNSConfig,
 			Tolerations:      layout.Template.Spec.Tolerations,
 			ImagePullSecrets: getImagePullSecretList(cl.imagePullSecretName),
+			SecurityContext:  getSecurityContext(layout.Template.RunAs),
 		},
 	}
 
@@ -337,129 +520,12 @@ func (cl *Client) Create(layout *ServiceSpec) (*Service, error) {
 }
 
 //Delete ...
-func (cl *Client) Delete(name string) error {
-	context := context.Background()
-
-	return cl.clientset.CoreV1().Pods(cl.ns).Delete(context, name, metav1.DeleteOptions{
-		GracePeriodSeconds: pointer.Int64Ptr(15),
-	})
-}
-
-//List ...
-func (cl *Client) List() ([]*Service, error) {
-	context := context.Background()
-	pods, err := cl.clientset.CoreV1().Pods(cl.ns).List(context, metav1.ListOptions{
-		LabelSelector: label,
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to get pods: %v", err)
-	}
-
-	var services []*Service
-
-	for _, pod := range pods.Items {
-		podName := pod.GetName()
-
-		var status ServiceStatus
-		switch pod.Status.Phase {
-		case apiv1.PodRunning:
-			status = Running
-		case apiv1.PodPending:
-			status = Pending
-		default:
-			status = Unknown
-		}
-
-		service := &Service{
-			SessionID: podName,
-			URL: &url.URL{
-				Scheme: "http",
-				Host:   tools.BuildHostPort(podName, cl.svc, cl.svcPort.StrVal),
-			},
-			Labels: getRequestedCapabilities(pod.GetAnnotations()),
-			CancelFunc: func() {
-				cl.Delete(podName)
-			},
-			Status:  status,
-			Started: pod.CreationTimestamp.Time,
-		}
-		services = append(services, service)
-	}
-
-	return services, nil
-
-}
-
-//Watch ...
-func (cl Client) Watch() <-chan Event {
-	ch := make(chan Event)
-
-	convert := func(obj interface{}) *Service {
-		pod := obj.(*apiv1.Pod)
-		podName := pod.GetName()
-
-		var status ServiceStatus
-		switch pod.Status.Phase {
-		case apiv1.PodRunning:
-			status = Running
-		case apiv1.PodPending:
-			status = Pending
-		default:
-			status = Unknown
-		}
-
-		return &Service{
-			SessionID: podName,
-			URL: &url.URL{
-				Scheme: "http",
-				Host:   tools.BuildHostPort(podName, cl.svc, cl.svcPort.StrVal),
-			},
-			Labels: getRequestedCapabilities(pod.GetAnnotations()),
-			CancelFunc: func() {
-				cl.Delete(podName)
-			},
-			Status:  status,
-			Started: pod.CreationTimestamp.Time,
-		}
-	}
-
-	namespace := informers.WithNamespace(cl.ns)
-	labels := informers.WithTweakListOptions(func(list *metav1.ListOptions) {
-		list.LabelSelector = label
-	})
-
-	sharedIformer := informers.NewSharedInformerFactoryWithOptions(cl.clientset, 30*time.Second, namespace, labels)
-	sharedIformer.Core().V1().Pods().Informer().AddEventHandler(
-		cache.ResourceEventHandlerFuncs{
-			AddFunc: func(obj interface{}) {
-				ch <- Event{
-					Type:    Added,
-					Service: convert(obj),
-				}
-			},
-			UpdateFunc: func(old interface{}, new interface{}) {
-				ch <- Event{
-					Type:    Updated,
-					Service: convert(new),
-				}
-			},
-			DeleteFunc: func(obj interface{}) {
-				ch <- Event{
-					Type:    Deleted,
-					Service: convert(obj),
-				}
-			},
-		},
-	)
-
-	var neverStop <-chan struct{} = make(chan struct{})
-	sharedIformer.Start(neverStop)
-	return ch
+func (cl *service) Delete(name string) error {
+	return deletePod(cl.clientset, cl.ns, name)
 }
 
 //Logs ...
-func (cl *Client) Logs(ctx context.Context, name string) (io.ReadCloser, error) {
+func (cl *service) Logs(ctx context.Context, name string) (io.ReadCloser, error) {
 	req := cl.clientset.CoreV1().Pods(cl.ns).GetLogs(name, &apiv1.PodLogOptions{
 		Container:  "browser",
 		Follow:     true,
@@ -467,6 +533,85 @@ func (cl *Client) Logs(ctx context.Context, name string) (io.ReadCloser, error) 
 		Timestamps: false,
 	})
 	return req.Stream(ctx)
+}
+
+type quota struct {
+	ns        string
+	clientset kubernetes.Interface
+}
+
+//Create ...
+func (cl quota) Create(limit int64) (*Quota, error) {
+	context := context.Background()
+	quantity, err := resource.ParseQuantity(strconv.FormatInt(limit, 10))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse limit amount")
+	}
+	quota := &apiv1.ResourceQuota{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   quotaName,
+			Labels: map[string]string{label: "quota"},
+		},
+		Spec: apiv1.ResourceQuotaSpec{
+			Hard: map[apiv1.ResourceName]resource.Quantity{apiv1.ResourcePods: quantity},
+		},
+	}
+	quota, err = cl.clientset.CoreV1().ResourceQuotas(cl.ns).Create(context, quota, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create resourceQuota")
+	}
+	return &Quota{
+		Name:            quota.GetName(),
+		CurrentMaxLimit: quota.Spec.Hard.Pods().Value(),
+	}, nil
+}
+
+func (cl quota) Get() (*Quota, error) {
+	context := context.Background()
+	quota, err := cl.clientset.CoreV1().ResourceQuotas(cl.ns).Get(context, quotaName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("quota not found")
+	}
+
+	return &Quota{
+		Name:            quota.GetName(),
+		CurrentMaxLimit: quota.Spec.Hard.Pods().Value(),
+	}, nil
+}
+
+//Update ...
+func (cl quota) Update(limit int64) (*Quota, error) {
+	context := context.Background()
+	quantity, err := resource.ParseQuantity(strconv.FormatInt(limit, 10))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse limit amount")
+	}
+	rq := &apiv1.ResourceQuota{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   quotaName,
+			Labels: map[string]string{label: "quota"},
+		},
+		Spec: apiv1.ResourceQuotaSpec{
+			Hard: map[apiv1.ResourceName]resource.Quantity{apiv1.ResourcePods: quantity},
+		},
+	}
+	quota, err := cl.clientset.CoreV1().ResourceQuotas(cl.ns).Update(context, rq, metav1.UpdateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("resourse quota update error: %v", err)
+	}
+
+	return &Quota{
+		Name:            quota.GetName(),
+		CurrentMaxLimit: rq.Spec.Hard.Pods().Value(),
+	}, err
+}
+
+func deletePod(clientset kubernetes.Interface, namespace, name string) error {
+	context := context.Background()
+
+	return clientset.CoreV1().Pods(namespace).Delete(context, name, metav1.DeleteOptions{
+		GracePeriodSeconds: pointer.Int64Ptr(15),
+	})
 }
 
 func getBrowserPorts() []apiv1.ContainerPort {
@@ -540,6 +685,24 @@ func getVolumes(volumes []apiv1.Volume) []apiv1.Volume {
 		v = append(v, volumes...)
 	}
 	return v
+}
+
+func getCapabilities(caps []apiv1.Capability) *apiv1.Capabilities {
+	if len(caps) > 0 {
+		return &apiv1.Capabilities{Add: caps}
+	}
+	return nil
+}
+
+func getSecurityContext(runAsOptions RunAsOptions) *apiv1.PodSecurityContext {
+	secContext := &apiv1.PodSecurityContext{}
+	if runAsOptions.RunAsUser != nil {
+		secContext.RunAsUser = runAsOptions.RunAsUser
+	}
+	if runAsOptions.RunAsGroup != nil {
+		secContext.RunAsGroup = runAsOptions.RunAsGroup
+	}
+	return secContext
 }
 
 func waitForService(u url.URL, t time.Duration) error {

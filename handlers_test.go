@@ -595,21 +595,25 @@ func NewPlatformMock(f *PlatformMock) platform.Platform {
 	return f
 }
 
-func (p *PlatformMock) Create(*platform.ServiceSpec) (*platform.Service, error) {
-	if p.err != nil {
-		return nil, p.err
+func (p *PlatformMock) Service() platform.ServiceInterface {
+	return &serviceMock{
+		err:     p.err,
+		service: p.service,
 	}
-	return p.service, nil
+}
 
-}
-func (p *PlatformMock) Delete(string) error {
-	if p.err != nil {
-		return p.err
+func (p *PlatformMock) Quota() platform.QuotaInterface {
+	return &quotaMock{
+		err: nil,
+		quota: &platform.Quota{
+			Name:            "test",
+			CurrentMaxLimit: 10,
+		},
 	}
-	return nil
 }
-func (p *PlatformMock) List() ([]*platform.Service, error) {
-	return nil, nil
+
+func (p *PlatformMock) State() (platform.PlatformState, error) {
+	return platform.PlatformState{}, nil
 }
 
 func (p *PlatformMock) Watch() <-chan platform.Event {
@@ -617,8 +621,48 @@ func (p *PlatformMock) Watch() <-chan platform.Event {
 	return ch
 }
 
-func (p *PlatformMock) Logs(ctx context.Context, name string) (io.ReadCloser, error) {
+func (p *PlatformMock) List() ([]*platform.Service, error) {
 	return nil, nil
+}
+
+type serviceMock struct {
+	err     error
+	service *platform.Service
+}
+
+func (p *serviceMock) Create(*platform.ServiceSpec) (*platform.Service, error) {
+	if p.err != nil {
+		return nil, p.err
+	}
+	return p.service, nil
+
+}
+func (p *serviceMock) Delete(string) error {
+	if p.err != nil {
+		return p.err
+	}
+	return nil
+}
+
+func (p *serviceMock) Logs(ctx context.Context, name string) (io.ReadCloser, error) {
+	return nil, nil
+}
+
+type quotaMock struct {
+	err   error
+	quota *platform.Quota
+}
+
+func (s *quotaMock) Create(int64) (*platform.Quota, error) {
+	return s.quota, nil
+}
+
+func (s *quotaMock) Get() (*platform.Quota, error) {
+	return s.quota, nil
+}
+
+func (s *quotaMock) Update(int64) (*platform.Quota, error) {
+	return s.quota, nil
 }
 
 type errReader int

@@ -589,6 +589,88 @@ chrome:
       image: selenoid/vnc:chrome_86.0
 ```
 
+## Custom UID and GID for browser pod
+Browser pod can be run with custom UID and GID. To do so set runAs property for specific browser globally or per each browser version.
+``` json
+{
+  "chrome": {
+    "defaultVersion": "85.0",
+    "path": "/",
+    "runAs": {
+      "uid": 1000,
+      "gid": 2000
+    },
+    "versions": {
+      "85.0": {
+        "image": "selenoid/vnc:chrome_85.0"
+      },
+      "runAs": {
+        "uid": 1001,
+        "gid": 2002
+      },
+      "86.0": {
+        "image": "selenoid/vnc:chrome_86.0"
+      }
+    }
+  }
+}
+```
+
+``` yaml
+---
+chrome:
+  defaultVersion: '85.0'
+  path: "/"
+  runAs:
+    uid: 1000
+    gid: 2000
+  versions:
+    '85.0':
+      image: selenoid/vnc:chrome_85.0
+    runAs:
+      uid: 1001
+      gid: 2002
+    '86.0':
+      image: selenoid/vnc:chrome_86.0
+```
+
+## Custom Kernel Capabilities
+In some cases you may need to run browser container with custom Linux capabilities. To do so set kernelCaps property for specific browser globally or per each browser version.
+``` json
+{
+  "chrome": {
+    "defaultVersion": "85.0",
+    "path": "/",
+    "kernelCaps": ["SYS_ADMIN"],
+    "versions": {
+      "85.0": {
+        "image": "selenoid/vnc:chrome_85.0"
+      },
+      "kernelCaps": ["SYS_ADMIN"],
+      "86.0": {
+        "image": "selenoid/vnc:chrome_86.0"
+      }
+    }
+  }
+}
+```
+
+``` yaml
+---
+chrome:
+  defaultVersion: '85.0'
+  path: "/"
+  kernelCaps:
+  - SYS_ADMIN
+  versions:
+    '85.0':
+      image: selenoid/vnc:chrome_85.0
+    kernelCaps:
+    - SYS_ADMIN
+    '86.0':
+      image: selenoid/vnc:chrome_86.0
+```
+
 ## Deployment
 Files and steps required for selenosis deployment available in [selenosis-deploy](https://github.com/alcounit/selenosis-deploy) repository
 
