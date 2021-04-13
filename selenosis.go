@@ -63,7 +63,7 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 	if quota, err = client.Quota().Get(); err != nil {
 		quota, err = client.Quota().Create(currentTotal())
 		if err != nil {
-			logger.Errorf("failed to create quota resource: %v", err)
+			logger.Fatalf("failed to create quota resource: %v", err)
 		}
 	}
 

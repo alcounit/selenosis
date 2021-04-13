@@ -375,11 +375,17 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func parseImage(image string) (container string) {
-	pref, err := regexp.Compile("[^a-zA-Z0-9]+")
-	if err != nil {
-		return "selenoid-browser"
+	browser := "browser"
+	if len(image) > 0 {
+		pref, err := regexp.Compile("[^a-zA-Z0-9]+")
+		if err != nil {
+			return browser
+		}
+		fragments := strings.Split(image, "/")
+		image = fragments[len(fragments)-1]
+		return pref.ReplaceAllString(image, "-")
 	}
-	return pref.ReplaceAllString(image, "-")
+	return browser
 }
 
 func getSessionStats(sessions []platform.Service) (active []platform.Service, pending []platform.Service) {
