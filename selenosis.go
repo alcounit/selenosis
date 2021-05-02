@@ -80,12 +80,9 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 
 	ch := client.Watch()
 	go func() {
-		for event := <-ch: {
-
-			
-		}
+		for {
 			select {
-			case event := <-ch:
+			case event := <- ch:
 				switch event.PlatformObject.(type) {
 				case *platform.Service:
 					service := event.PlatformObject.(*platform.Service)
