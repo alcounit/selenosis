@@ -80,7 +80,10 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 
 	ch := client.Watch()
 	go func() {
-		for {
+		for event := <-ch: {
+
+			
+		}
 			select {
 			case event := <-ch:
 				switch event.PlatformObject.(type) {
@@ -147,11 +150,7 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 						}
 						storage.Quota().Put(quota)
 					}
-				default:
-					break
 				}
-			default:
-				break
 			}
 		}
 	}()

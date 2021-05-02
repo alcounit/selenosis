@@ -181,7 +181,13 @@ func (app *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	sessionID, ok := vars["sessionId"]
 	if !ok {
-		app.logger.Error("session id not found")
+		app.logger.WithField("request", fmt.Sprintf("%s %s", r.Method, r.URL.Path)).Error("session id not found")
+		tools.JSONError(w, "session id not found", http.StatusBadRequest)
+		return
+	}
+
+	if !isValidSession(sessionID) {
+		app.logger.WithField("request", fmt.Sprintf("%s %s", r.Method, r.URL.Path)).Errorf("%s is not valid session id", sessionID)
 		tools.JSONError(w, "session id not found", http.StatusBadRequest)
 		return
 	}
@@ -237,7 +243,13 @@ func (app *App) HandleReverseProxy(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	sessionID, ok := vars["sessionId"]
 	if !ok {
-		app.logger.Error("session id not found")
+		app.logger.WithField("request", fmt.Sprintf("%s %s", r.Method, r.URL.Path)).Error("session id not found")
+		tools.JSONError(w, "session id not found", http.StatusBadRequest)
+		return
+	}
+
+	if !isValidSession(sessionID) {
+		app.logger.WithField("request", fmt.Sprintf("%s %s", r.Method, r.URL.Path)).Errorf("%s is not valid session id", sessionID)
 		tools.JSONError(w, "session id not found", http.StatusBadRequest)
 		return
 	}
@@ -271,7 +283,12 @@ func (app *App) HandleVNC() websocket.Handler {
 		vars := mux.Vars(wsconn.Request())
 		sessionID, ok := vars["sessionId"]
 		if !ok {
-			app.logger.Error("session id not found")
+			app.logger.WithField("request", fmt.Sprintf("%s %s", wsconn.Request().Method, wsconn.Request().URL.Path)).Error("session id not found")
+			return
+		}
+
+		if !isValidSession(sessionID) {
+			app.logger.WithField("request", fmt.Sprintf("%s %s", wsconn.Request().Method, wsconn.Request().URL.Path)).Errorf("%s is not valid session id", sessionID)
 			return
 		}
 
@@ -310,7 +327,12 @@ func (app *App) HandleLogs() websocket.Handler {
 		vars := mux.Vars(wsconn.Request())
 		sessionID, ok := vars["sessionId"]
 		if !ok {
-			app.logger.Error("session id not found")
+			app.logger.WithField("request", fmt.Sprintf("%s %s", wsconn.Request().Method, wsconn.Request().URL.Path)).Error("session id not found")
+			return
+		}
+
+		if !isValidSession(sessionID) {
+			app.logger.WithField("request", fmt.Sprintf("%s %s", wsconn.Request().Method, wsconn.Request().URL.Path)).Errorf("%s is not valid session id", sessionID)
 			return
 		}
 
@@ -386,6 +408,28 @@ func parseImage(image string) (container string) {
 		return pref.ReplaceAllString(image, "-")
 	}
 	return browser
+}
+
+func isValidSession(session string) bool {
+	/*
+		A UUID is made up of hex digits (4 chars each) along with 4 "- symbols,
+		which make its length equal to 36 characters.
+	*/
+
+	sLen := len(session)
+
+	if sLen >= 36 {
+		switch sLen {
+		case 36:
+			_, err := uuid.Parse(session)
+			return err == nil
+		default:
+			sess := session[len(session)-36:]
+			_, err := uuid.Parse(sess)
+			return err == nil
+		}
+	}
+	return false
 }
 
 func getSessionStats(sessions []platform.Service) (active []platform.Service, pending []platform.Service) {
