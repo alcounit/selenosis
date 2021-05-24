@@ -132,7 +132,9 @@ func readConfig(configFile string) (map[string]*Layout, error) {
 	for _, layout := range layouts {
 		spec := layout.DefaultSpec
 		for _, container := range layout.Versions {
-			container.Path = layout.Path
+			if container.Path == "" {
+				container.Path = layout.Path	
+			}			
 			container.Meta.Annotations = merge(container.Meta.Annotations, layout.Meta.Annotations)
 			container.Meta.Labels = merge(container.Meta.Labels, layout.Meta.Labels)
 			container.Volumes = layout.Volumes
