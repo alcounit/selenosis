@@ -154,7 +154,7 @@ func TestNewSessionOnBrowserNetworkError(t *testing.T) {
 		t.Logf("TC: %s", name)
 
 		client := &PlatformMock{
-			service: &platform.Service{
+			service: platform.Service{
 				SessionID:  "sessionID",
 				CancelFunc: func() {},
 				URL: &url.URL{
@@ -215,7 +215,7 @@ func TestNewSessionOnCancelRequest(t *testing.T) {
 		u, _ := url.Parse(s.URL)
 
 		platform := &PlatformMock{
-			service: &platform.Service{
+			service: platform.Service{
 				SessionID:  "sessionID",
 				CancelFunc: func() {},
 				URL:        u,
@@ -277,7 +277,7 @@ func TestNewSessionOnRequestTimeout(t *testing.T) {
 		u, _ := url.Parse(s.URL)
 
 		platform := &PlatformMock{
-			service: &platform.Service{
+			service: platform.Service{
 				SessionID:  "sessionID",
 				CancelFunc: func() {},
 				URL:        u,
@@ -338,7 +338,7 @@ func TestNewSessionResponseCodeError(t *testing.T) {
 		u, _ := url.Parse(s.URL)
 
 		platform := &PlatformMock{
-			service: &platform.Service{
+			service: platform.Service{
 				SessionID:  "sessionID",
 				CancelFunc: func() {},
 				URL:        u,
@@ -396,7 +396,7 @@ func TestNewSessionResponseBodyError(t *testing.T) {
 		u, _ := url.Parse(s.URL)
 
 		platform := &PlatformMock{
-			service: &platform.Service{
+			service: platform.Service{
 				SessionID:  "sessionID",
 				CancelFunc: func() {},
 				URL:        u,
@@ -455,7 +455,7 @@ func TestNewSessionCreated(t *testing.T) {
 		u, _ := url.Parse(s.URL)
 
 		platform := &PlatformMock{
-			service: &platform.Service{
+			service: platform.Service{
 				SessionID:  "sessionID",
 				CancelFunc: func() {},
 				URL:        u,
@@ -587,7 +587,7 @@ func initApp(p *PlatformMock) *App {
 
 type PlatformMock struct {
 	err     error
-	service *platform.Service
+	service platform.Service
 	stats   *storage.Storage
 }
 
@@ -605,7 +605,7 @@ func (p *PlatformMock) Service() platform.ServiceInterface {
 func (p *PlatformMock) Quota() platform.QuotaInterface {
 	return &quotaMock{
 		err: nil,
-		quota: &platform.Quota{
+		quota: platform.Quota{
 			Name:            "test",
 			CurrentMaxLimit: 10,
 		},
@@ -627,12 +627,12 @@ func (p *PlatformMock) List() ([]*platform.Service, error) {
 
 type serviceMock struct {
 	err     error
-	service *platform.Service
+	service platform.Service
 }
 
-func (p *serviceMock) Create(*platform.ServiceSpec) (*platform.Service, error) {
+func (p *serviceMock) Create(platform.ServiceSpec) (platform.Service, error) {
 	if p.err != nil {
-		return nil, p.err
+		return platform.Service{}, p.err
 	}
 	return p.service, nil
 
@@ -650,18 +650,18 @@ func (p *serviceMock) Logs(ctx context.Context, name string) (io.ReadCloser, err
 
 type quotaMock struct {
 	err   error
-	quota *platform.Quota
+	quota platform.Quota
 }
 
-func (s *quotaMock) Create(int64) (*platform.Quota, error) {
+func (s *quotaMock) Create(int64) (platform.Quota, error) {
 	return s.quota, nil
 }
 
-func (s *quotaMock) Get() (*platform.Quota, error) {
+func (s *quotaMock) Get() (platform.Quota, error) {
 	return s.quota, nil
 }
 
-func (s *quotaMock) Update(int64) (*platform.Quota, error) {
+func (s *quotaMock) Update(int64) (platform.Quota, error) {
 	return s.quota, nil
 }
 

@@ -59,7 +59,7 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 	currentTotal := func() int64 {
 		return int64(storage.Workers().Len() + limit)
 	}
-	var quota *platform.Quota
+	var quota platform.Quota
 	if quota, err = client.Quota().Get(); err != nil {
 		quota, err = client.Quota().Create(currentTotal())
 		if err != nil {
@@ -84,8 +84,8 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 			select {
 			case event := <- ch:
 				switch event.PlatformObject.(type) {
-				case *platform.Service:
-					service := event.PlatformObject.(*platform.Service)
+				case platform.Service:
+					service := event.PlatformObject.(platform.Service)
 					switch event.Type {
 					case platform.Added:
 						storage.Sessions().Put(service.SessionID, service)
@@ -95,8 +95,8 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 						storage.Sessions().Delete(service.SessionID)
 					}
 
-				case *platform.Worker:
-					worker := event.PlatformObject.(*platform.Worker)
+				case platform.Worker:
+					worker := event.PlatformObject.(platform.Worker)
 					switch event.Type {
 					case platform.Added:
 						storage.Workers().Put(worker.Name, worker)
@@ -118,8 +118,8 @@ func New(logger *log.Logger, client platform.Platform, browsers *config.Browsers
 						logger.Infof("selenosis worker: %s removed, current namespace quota limit: %d", worker.Name, storage.Quota().Get().CurrentMaxLimit)
 					}
 
-				case *platform.Quota:
-					quota := event.PlatformObject.(*platform.Quota)
+				case platform.Quota:
+					quota := event.PlatformObject.(platform.Quota)
 					switch event.Type {
 					case platform.Added:
 						if quota.CurrentMaxLimit != currentTotal() {

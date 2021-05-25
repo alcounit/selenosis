@@ -8,11 +8,11 @@ import (
 )
 
 type sessions struct {
-	m map[string]*platform.Service
+	m map[string]platform.Service
 }
 
 //Put ...
-func (s *sessions) Put(sessionID string, service *platform.Service) {
+func (s *sessions) Put(sessionID string, service platform.Service) {
 	if sessionID != "" {
 		s.m[sessionID] = service
 	}
@@ -24,15 +24,8 @@ func (s *sessions) Delete(sessionID string) {
 }
 
 //List ...
-func (s *sessions) List() []platform.Service {
-	var l []platform.Service
-	for _, p := range s.m {
-		c := *p
-		c.Uptime = tools.TimeElapsed(c.Started)
-		l = append(l, c)
-	}
-	
-	return l
+func (s *sessions) List() map[string]platform.Service {
+	return s.m
 
 }
 
@@ -42,11 +35,11 @@ func (s *sessions) Len() int {
 }
 
 type workers struct {
-	m map[string]*platform.Worker
+	m map[string]platform.Worker
 }
 
 //Put ...
-func (w *workers) Put(name string, worker *platform.Worker) {
+func (w *workers) Put(name string, worker platform.Worker) {
 	if name != "" {
 		w.m[name] = worker
 	}
@@ -60,10 +53,9 @@ func (w *workers) Delete(name string) {
 //List ...
 func (w *workers) List() []platform.Worker {
 	var l []platform.Worker
-	for _, p := range w.m {
-		c := *p
-		c.Uptime = tools.TimeElapsed(c.Started)
-		l = append(l, c)
+	for _, w := range w.m {
+		w.Uptime = tools.TimeElapsed(w.Started)
+		l = append(l, w)
 	}
 
 	return l
@@ -77,16 +69,16 @@ func (s *workers) Len() int {
 
 type quota struct {
 	w *workers
-	q *platform.Quota
+	q platform.Quota
 }
 
 //Put ...
-func (q *quota) Put(quota *platform.Quota) {
+func (q *quota) Put(quota platform.Quota) {
 	q.q = quota
 }
 
 //Put ...
-func (q *quota) Get() *platform.Quota {
+func (q *quota) Get() platform.Quota {
 	return q.q
 }
 
@@ -100,8 +92,8 @@ type Storage struct {
 
 //New ...
 func New() *Storage {
-	sessions := &sessions{m: make(map[string]*platform.Service)}
-	workers := &workers{m: make(map[string]*platform.Worker)}
+	sessions := &sessions{m: make(map[string]platform.Service)}
+	workers := &workers{m: make(map[string]platform.Worker)}
 	quota := &quota{w: workers}
 	return &Storage{
 		sessions: sessions,

@@ -133,8 +133,8 @@ func (cl *Client) State() (PlatformState, error) {
 		return PlatformState{}, fmt.Errorf("failed to get pods: %v", err)
 	}
 
-	var services []*Service
-	var workers []*Worker
+	var services []Service
+	var workers []Worker
 
 	for _, pod := range pods.Items {
 		podName := pod.GetName()
@@ -153,16 +153,15 @@ func (cl *Client) State() (PlatformState, error) {
 		if application, ok := pod.GetLabels()[label]; ok {
 			switch application {
 			case "worker":
-				worker := &Worker{
+				workers = append(workers, Worker{
 					Name:    podName,
 					Labels:  pod.Labels,
 					Status:  status,
 					Started: creationTime,
-				}
-				workers = append(workers, worker)
+				})
 
 			case "browser":
-				service := &Service{
+				services = append(services, Service{
 					SessionID: podName,
 					URL: &url.URL{
 						Scheme: "http",
@@ -174,9 +173,7 @@ func (cl *Client) State() (PlatformState, error) {
 					},
 					Status:  status,
 					Started: creationTime,
-				}
-
-				services = append(services, service)
+				})
 			}
 		}
 	}
@@ -218,7 +215,7 @@ func (cl *Client) Watch() <-chan Event {
 				case "worker":
 					ch <- Event{
 						Type: eventType,
-						PlatformObject: &Worker{
+						PlatformObject: Worker{
 							Name:    podName,
 							Labels:  pod.Labels,
 							Status:  status,
@@ -229,7 +226,7 @@ func (cl *Client) Watch() <-chan Event {
 				case "browser":
 					ch <- Event{
 						Type: eventType,
-						PlatformObject: &Service{
+						PlatformObject: Service{
 							SessionID: podName,
 							URL: &url.URL{
 								Scheme: "http",
@@ -267,7 +264,7 @@ func (cl *Client) Watch() <-chan Event {
 				rqName := rq.GetName()
 				ch <- Event{
 					Type: eventType,
-					PlatformObject: &Quota{
+					PlatformObject: Quota{
 						Name:            rqName,
 						CurrentMaxLimit: rq.Spec.Hard.Pods().Value(),
 					},
@@ -306,7 +303,7 @@ type service struct {
 }
 
 //Create ...
-func (cl *service) Create(layout *ServiceSpec) (*Service, error) {
+func (cl *service) Create(layout ServiceSpec) (Service, error) {
 	annontations := map[string]string{
 		defaultsAnnotations.browserName:    layout.Template.BrowserName,
 		defaultsAnnotations.browserVersion: layout.Template.BrowserVersion,
@@ -426,8 +423,8 @@ func (cl *service) Create(layout *ServiceSpec) (*Service, error) {
 			NodeSelector:     layout.Template.Spec.NodeSelector,
 			HostAliases:      layout.Template.Spec.HostAliases,
 			RestartPolicy:    apiv1.RestartPolicyNever,
-			Affinity:         layout.Template.Spec.Affinity,
-			DNSConfig:        layout.Template.Spec.DNSConfig,
+			Affinity:         &layout.Template.Spec.Affinity,
+			DNSConfig:        &layout.Template.Spec.DNSConfig,
 			Tolerations:      layout.Template.Spec.Tolerations,
 			ImagePullSecrets: getImagePullSecretList(cl.imagePullSecretName),
 			SecurityContext:  getSecurityContext(layout.Template.RunAs),
@@ -438,7 +435,7 @@ func (cl *service) Create(layout *ServiceSpec) (*Service, error) {
 	pod, err := cl.clientset.CoreV1().Pods(cl.ns).Create(context, pod, metav1.CreateOptions{})
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to create pod %v", err)
+		return Service{}, fmt.Errorf("failed to create pod %v", err)
 	}
 
 	podName := pod.GetName()
@@ -452,7 +449,7 @@ func (cl *service) Create(layout *ServiceSpec) (*Service, error) {
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to watch pod status: %v", err)
+		return Service{}, fmt.Errorf("failed to watch pod status: %v", err)
 	}
 
 	statusFn := func() error {
@@ -491,21 +488,22 @@ func (cl *service) Create(layout *ServiceSpec) (*Service, error) {
 	err = statusFn()
 	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("pod is not ready after creation: %v", err)
+		return Service{}, fmt.Errorf("pod is not ready after creation: %v", err)
 	}
 
 	u := &url.URL{
 		Scheme: "http",
-		Host:   tools.BuildHostPort(podName, cl.svc, browserPorts.selenium.StrVal),
+		Host:   podName + "." + cl.svc + ":" + browserPorts.selenium.StrVal,
 	}
 
 	if err := waitForService(*u, cl.readinessTimeout); err != nil {
 		cancel()
-		return nil, fmt.Errorf("container service is not ready %v", u.String())
+		return Service{}, fmt.Errorf("container service is not ready %v", u.String())
 	}
 
-	u.Host = tools.BuildHostPort(podName, cl.svc, cl.svcPort.StrVal)
-	svc := &Service{
+	u.Host = podName + "." + cl.svc + ":" + cl.svcPort.StrVal
+
+	return Service{
 		SessionID: podName,
 		URL:       u,
 		Labels:    getRequestedCapabilities(pod.GetAnnotations()),
@@ -514,9 +512,7 @@ func (cl *service) Create(layout *ServiceSpec) (*Service, error) {
 		},
 		Status:  Running,
 		Started: pod.CreationTimestamp.Time,
-	}
-
-	return svc, nil
+	}, nil
 }
 
 //Delete ...
@@ -541,11 +537,11 @@ type quota struct {
 }
 
 //Create ...
-func (cl quota) Create(limit int64) (*Quota, error) {
+func (cl quota) Create(limit int64) (Quota, error) {
 	context := context.Background()
 	quantity, err := resource.ParseQuantity(strconv.FormatInt(limit, 10))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse limit amount")
+		return Quota{}, fmt.Errorf("failed to parse limit amount")
 	}
 	quota := &apiv1.ResourceQuota{
 		ObjectMeta: metav1.ObjectMeta{
@@ -558,33 +554,33 @@ func (cl quota) Create(limit int64) (*Quota, error) {
 	}
 	quota, err = cl.clientset.CoreV1().ResourceQuotas(cl.ns).Create(context, quota, metav1.CreateOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create resourceQuota")
+		return Quota{}, fmt.Errorf("failed to create resourceQuota")
 	}
-	return &Quota{
+	return Quota{
 		Name:            quota.GetName(),
 		CurrentMaxLimit: quota.Spec.Hard.Pods().Value(),
 	}, nil
 }
 
-func (cl quota) Get() (*Quota, error) {
+func (cl quota) Get() (Quota, error) {
 	context := context.Background()
 	quota, err := cl.clientset.CoreV1().ResourceQuotas(cl.ns).Get(context, quotaName, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("quota not found")
+		return Quota{}, fmt.Errorf("quota not found")
 	}
 
-	return &Quota{
+	return Quota{
 		Name:            quota.GetName(),
 		CurrentMaxLimit: quota.Spec.Hard.Pods().Value(),
 	}, nil
 }
 
 //Update ...
-func (cl quota) Update(limit int64) (*Quota, error) {
+func (cl quota) Update(limit int64) (Quota, error) {
 	context := context.Background()
 	quantity, err := resource.ParseQuantity(strconv.FormatInt(limit, 10))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse limit amount")
+		return Quota{}, fmt.Errorf("failed to parse limit amount")
 	}
 	rq := &apiv1.ResourceQuota{
 		ObjectMeta: metav1.ObjectMeta{
@@ -597,10 +593,10 @@ func (cl quota) Update(limit int64) (*Quota, error) {
 	}
 	quota, err := cl.clientset.CoreV1().ResourceQuotas(cl.ns).Update(context, rq, metav1.UpdateOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("resourse quota update error: %v", err)
+		return Quota{}, fmt.Errorf("resourse quota update error: %v", err)
 	}
 
-	return &Quota{
+	return Quota{
 		Name:            quota.GetName(),
 		CurrentMaxLimit: rq.Spec.Hard.Pods().Value(),
 	}, err

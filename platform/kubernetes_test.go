@@ -23,7 +23,7 @@ func TestErrorsOnServiceCreate(t *testing.T) {
 	tests := map[string]struct {
 		ns        string
 		podName   string
-		layout    *ServiceSpec
+		layout    ServiceSpec
 		eventType watch.EventType
 		podPhase  apiv1.PodPhase
 		err       error
@@ -31,12 +31,12 @@ func TestErrorsOnServiceCreate(t *testing.T) {
 		"Verify platform error on pod startup phase PodSucceeded": {
 			ns:      "selenosis",
 			podName: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
-			layout: &ServiceSpec{
+			layout: ServiceSpec{
 				SessionID: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
 				RequestedCapabilities: selenium.Capabilities{
 					VNC: true,
 				},
-				Template: &BrowserSpec{
+				Template: BrowserSpec{
 					BrowserName:    "chrome",
 					BrowserVersion: "85.0",
 					Image:          "selenoid/vnc:chrome_85.0",
@@ -50,12 +50,12 @@ func TestErrorsOnServiceCreate(t *testing.T) {
 		"Verify platform error on pod startup phase PodFailed": {
 			ns:      "selenosis",
 			podName: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
-			layout: &ServiceSpec{
+			layout: ServiceSpec{
 				SessionID: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
 				RequestedCapabilities: selenium.Capabilities{
 					VNC: true,
 				},
-				Template: &BrowserSpec{
+				Template: BrowserSpec{
 					BrowserName:    "chrome",
 					BrowserVersion: "85.0",
 					Image:          "selenoid/vnc:chrome_85.0",
@@ -69,12 +69,12 @@ func TestErrorsOnServiceCreate(t *testing.T) {
 		"Verify platform error on pod startup phase PodUnknown": {
 			ns:      "selenosis",
 			podName: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
-			layout: &ServiceSpec{
+			layout: ServiceSpec{
 				SessionID: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
 				RequestedCapabilities: selenium.Capabilities{
 					VNC: true,
 				},
-				Template: &BrowserSpec{
+				Template: BrowserSpec{
 					BrowserName:    "chrome",
 					BrowserVersion: "85.0",
 					Image:          "selenoid/vnc:chrome_85.0",
@@ -88,12 +88,12 @@ func TestErrorsOnServiceCreate(t *testing.T) {
 		"Verify platform error on pod startup phase Unknown": {
 			ns:      "selenosis",
 			podName: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
-			layout: &ServiceSpec{
+			layout: ServiceSpec{
 				SessionID: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
 				RequestedCapabilities: selenium.Capabilities{
 					VNC: true,
 				},
-				Template: &BrowserSpec{
+				Template: BrowserSpec{
 					BrowserName:    "chrome",
 					BrowserVersion: "85.0",
 					Image:          "selenoid/vnc:chrome_85.0",
@@ -106,12 +106,12 @@ func TestErrorsOnServiceCreate(t *testing.T) {
 		"Verify platform error on pod startup event Error": {
 			ns:      "selenosis",
 			podName: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
-			layout: &ServiceSpec{
+			layout: ServiceSpec{
 				SessionID: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
 				RequestedCapabilities: selenium.Capabilities{
 					VNC: true,
 				},
-				Template: &BrowserSpec{
+				Template: BrowserSpec{
 					BrowserName:    "chrome",
 					BrowserVersion: "85.0",
 					Image:          "selenoid/vnc:chrome_85.0",
@@ -125,12 +125,12 @@ func TestErrorsOnServiceCreate(t *testing.T) {
 		"Verify platform error on pod startup event Deleted": {
 			ns:      "selenosis",
 			podName: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
-			layout: &ServiceSpec{
+			layout: ServiceSpec{
 				SessionID: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
 				RequestedCapabilities: selenium.Capabilities{
 					VNC: true,
 				},
-				Template: &BrowserSpec{
+				Template: BrowserSpec{
 					BrowserName:    "chrome",
 					BrowserVersion: "85.0",
 					Image:          "selenoid/vnc:chrome_85.0",
@@ -144,12 +144,12 @@ func TestErrorsOnServiceCreate(t *testing.T) {
 		"Verify platform error on pod startup event Unknown": {
 			ns:      "selenosis",
 			podName: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
-			layout: &ServiceSpec{
+			layout: ServiceSpec{
 				SessionID: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
 				RequestedCapabilities: selenium.Capabilities{
 					VNC: true,
 				},
-				Template: &BrowserSpec{
+				Template: BrowserSpec{
 					BrowserName:    "chrome",
 					BrowserVersion: "85.0",
 					Image:          "selenoid/vnc:chrome_85.0",

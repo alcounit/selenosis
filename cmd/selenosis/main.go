@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"net/http/pprof"
+
 	"github.com/alcounit/selenosis"
 	"github.com/alcounit/selenosis/config"
 	"github.com/alcounit/selenosis/platform"
@@ -100,9 +102,10 @@ func command() *cobra.Command {
 			router.PathPrefix("/download/{sessionId}").HandlerFunc(app.HandleReverseProxy)
 			router.PathPrefix("/clipboard/{sessionId}").HandlerFunc(app.HandleReverseProxy)
 			router.PathPrefix("/status").HandlerFunc(app.HandleStatus)
-			router.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+			router.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}).Methods(http.MethodGet)
+			router.PathPrefix("/debug/pprof/").HandlerFunc(pprof.Index)
 
 			srv := &http.Server{
 				Addr:    address,
