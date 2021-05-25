@@ -62,12 +62,13 @@ func (cfg *BrowsersConfig) Reload() error {
 }
 
 //Find return Container if it present in config
-func (cfg *BrowsersConfig) Find(name, version string) (*platform.BrowserSpec, error) {
+func (cfg *BrowsersConfig) Find(name, version string) (platform.BrowserSpec, error) {
 	cfg.lock.Lock()
 	defer cfg.lock.Unlock()
+
 	c, ok := cfg.containers[name]
 	if !ok {
-		return nil, fmt.Errorf("unknown browser name %s", name)
+		return platform.BrowserSpec{}, fmt.Errorf("unknown browser name %s", name)
 	}
 
 	v, ok := c.Versions[version]
@@ -76,17 +77,17 @@ func (cfg *BrowsersConfig) Find(name, version string) (*platform.BrowserSpec, er
 		if c.DefaultVersion != "" {
 			v, ok = c.Versions[c.DefaultVersion]
 			if !ok {
-				return nil, fmt.Errorf("unknown browser version %s", version)
+				return platform.BrowserSpec{}, fmt.Errorf("unknown browser version %s", version)
 			}
 			v.BrowserName = name
 			v.BrowserVersion = c.DefaultVersion
-			return v, nil
+			return *v, nil
 		}
-		return nil, fmt.Errorf("unknown browser version %s", version)
+		return platform.BrowserSpec{}, fmt.Errorf("unknown browser version %s", version)
 	}
 	v.BrowserName = name
 	v.BrowserVersion = version
-	return v, nil
+	return *v, nil
 }
 
 //GetBrowserVersions ...
@@ -94,12 +95,14 @@ func (cfg *BrowsersConfig) GetBrowserVersions() map[string][]string {
 	cfg.lock.Lock()
 	defer cfg.lock.Unlock()
 
-	browsers := make(map[string][]string)
+	browsers := make(map[string][]string, len(cfg.containers))
 
 	for name, layout := range cfg.containers {
-		versions := make([]string, 0)
+		versions := make([]string, len(layout.Versions))
+		i := 0
 		for version := range layout.Versions {
-			versions = append(versions, version)
+			versions[i] = version
+			i++
 		}
 		sort.Slice(versions[:], func(i, j int) bool {
 			ii := tools.StrToFloat64(versions[i])
@@ -118,9 +121,9 @@ func readConfig(configFile string) (map[string]*Layout, error) {
 		return nil, fmt.Errorf("read error: %v", err)
 	}
 
-	layouts := make(map[string]*Layout)
 	decoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(content), 1000)
 
+	layouts := make(map[string]*Layout)
 	if err := decoder.Decode(&layouts); err != nil {
 		return nil, fmt.Errorf("parse error: %v", err)
 	}

@@ -30,19 +30,19 @@ func TestPut(t *testing.T) {
 	tests := map[string]struct {
 		strg    *Storage
 		session string
-		service *platform.Service
+		service platform.Service
 		len     int
 	}{
 		"Verify service put to storage": {
 			strg:    New(),
 			session: "selenoid-vnc-chrome-85-0-c3fa5fa2-ea17-4b16-adec-97f7d535ee93",
-			service: &platform.Service{},
+			service: platform.Service{},
 			len:     1,
 		},
 		"Verify service put to storage on empty session": {
 			strg:    New(),
 			session: "",
-			service: &platform.Service{},
+			service: platform.Service{},
 			len:     0,
 		},
 	}
@@ -61,7 +61,7 @@ func TestDelete(t *testing.T) {
 		strg            *Storage
 		sessionToAdd    string
 		sessionToDelete string
-		service         *platform.Service
+		service         platform.Service
 		lenOnAdd        int
 		lenOnDelete     int
 	}{
@@ -69,7 +69,7 @@ func TestDelete(t *testing.T) {
 			strg:            New(),
 			sessionToAdd:    "selenoid-vnc-chrome-85-0-c3fa5fa2-ea17-4b16-adec-97f7d535ee93",
 			sessionToDelete: "selenoid-vnc-chrome-85-0-c3fa5fa2-ea17-4b16-adec-97f7d535ee93",
-			service:         &platform.Service{},
+			service:         platform.Service{},
 			lenOnAdd:        1,
 			lenOnDelete:     0,
 		},
@@ -77,7 +77,7 @@ func TestDelete(t *testing.T) {
 			strg:            New(),
 			sessionToAdd:    "selenoid-vnc-chrome-85-0-c3fa5fa2-ea17-4b16-adec-97f7d535ee93",
 			sessionToDelete: "selenoid-vnc-chrome-85-0-c3fa5fa2-ea17-4b16-adec-97f7d535ee92",
-			service:         &platform.Service{},
+			service:         platform.Service{},
 			lenOnAdd:        1,
 			lenOnDelete:     1,
 		},
@@ -100,13 +100,13 @@ func TestList(t *testing.T) {
 	tests := map[string]struct {
 		strg    *Storage
 		session string
-		service *platform.Service
+		service platform.Service
 		len     int
 	}{
 		"Verify storage listing": {
 			strg:    New(),
 			session: "selenoid-vnc-chrome-85-0-c3fa5fa2-ea17-4b16-adec-97f7d535ee93",
-			service: &platform.Service{
+			service: platform.Service{
 				SessionID: "selenoid-vnc-chrome-85-0-c3fa5fa2-ea17-4b16-adec-97f7d535ee93",
 			},
 			len: 1,

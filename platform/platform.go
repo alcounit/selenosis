@@ -22,8 +22,8 @@ type Spec struct {
 	HostAliases  []apiv1.HostAlias          `yaml:"hostAliases,omitempty" json:"hostAliases,omitempty"`
 	EnvVars      []apiv1.EnvVar             `yaml:"env,omitempty" json:"env,omitempty"`
 	NodeSelector map[string]string          `yaml:"nodeSelector,omitempty" json:"nodeSelector,omitempty"`
-	Affinity     *apiv1.Affinity            `yaml:"affinity,omitempty" json:"affinity,omitempty"`
-	DNSConfig    *apiv1.PodDNSConfig        `yaml:"dnsConfig,omitempty" json:"dnsConfig,omitempty"`
+	Affinity     apiv1.Affinity             `yaml:"affinity,omitempty" json:"affinity,omitempty"`
+	DNSConfig    apiv1.PodDNSConfig         `yaml:"dnsConfig,omitempty" json:"dnsConfig,omitempty"`
 	Tolerations  []apiv1.Toleration         `yaml:"tolerations,omitempty" json:"tolerations,omitempty"`
 	VolumeMounts []apiv1.VolumeMount        `yaml:"volumeMounts,omitempty" json:"volumeMounts,omitempty"`
 }
@@ -50,7 +50,7 @@ type BrowserSpec struct {
 type ServiceSpec struct {
 	SessionID             string
 	RequestedCapabilities selenium.Capabilities
-	Template              *BrowserSpec
+	Template              BrowserSpec
 }
 
 //Service ...
@@ -71,8 +71,8 @@ type Quota struct {
 }
 
 type PlatformState struct {
-	Services []*Service
-	Workers  []*Worker
+	Services []Service
+	Workers  []Worker
 }
 
 type Worker struct {
@@ -114,13 +114,13 @@ type Platform interface {
 }
 
 type ServiceInterface interface {
-	Create(*ServiceSpec) (*Service, error)
+	Create(ServiceSpec) (Service, error)
 	Delete(string) error
 	Logs(context.Context, string) (io.ReadCloser, error)
 }
 
 type QuotaInterface interface {
-	Create(int64) (*Quota, error)
-	Get() (*Quota, error)
-	Update(int64) (*Quota, error)
+	Create(int64) (Quota, error)
+	Get() (Quota, error)
+	Update(int64) (Quota, error)
 }

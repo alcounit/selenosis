@@ -30,7 +30,33 @@ var (
 			return http.ErrUseLastResponse
 		},
 	}
+	dialer net.Dialer
 )
+
+const browser = "browser"
+
+type capabilities struct {
+	DesiredCapabilities selenium.Capabilities `json:"desiredCapabilities"`
+	Capabilities        struct {
+		AlwaysMatch selenium.Capabilities    `json:"alwaysMatch"`
+		FirstMatch  []*selenium.Capabilities `json:"firstMatch"`
+	} `json:"capabilities"`
+}
+
+type Status struct {
+	Total    int                 `json:"total"`
+	Active   int                 `json:"active"`
+	Pending  int                 `json:"pending"`
+	Browsers map[string][]string `json:"config,omitempty"`
+	Sessions []platform.Service  `json:"sessions,omitempty"`
+}
+
+type response struct {
+	Status    int    `json:"status"`
+	Version   string `json:"version"`
+	Error     string `json:"err,omitempty"`
+	Selenosis Status `json:"selenosis,omitempty"`
+}
 
 //HandleSession ...
 func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
@@ -49,13 +75,7 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	var request struct {
-		DesiredCapabilities selenium.Capabilities `json:"desiredCapabilities"`
-		Capabilities        struct {
-			AlwaysMatch selenium.Capabilities    `json:"alwaysMatch"`
-			FirstMatch  []*selenium.Capabilities `json:"firstMatch"`
-		} `json:"capabilities"`
-	}
+	request := capabilities{}
 
 	err = json.Unmarshal(body, &request)
 	if err != nil {
@@ -73,7 +93,7 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 		firstMatchCaps = append(firstMatchCaps, &selenium.Capabilities{})
 	}
 
-	var browser *platform.BrowserSpec
+	var browser platform.BrowserSpec
 	var caps selenium.Capabilities
 
 	for _, fmc := range firstMatchCaps {
@@ -93,16 +113,14 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logger.WithField("time_elapsed", tools.TimeElapsed(start)).Infof("starting browser from image: %s", browser.Image)
+
 	image := parseImage(browser.Image)
-	template := &platform.ServiceSpec{
+	service, err := app.client.Service().Create(platform.ServiceSpec{
 		SessionID:             fmt.Sprintf("%s-%s", image, uuid.New()),
 		RequestedCapabilities: caps,
 		Template:              browser,
-	}
-
-	logger.WithField("time_elapsed", tools.TimeElapsed(start)).Infof("starting browser from image: %s", template.Template.Image)
-
-	service, err := app.client.Service().Create(template)
+	})
 	if err != nil {
 		logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("failed to start browser: %v", err)
 		tools.JSONError(w, err.Error(), http.StatusBadRequest)
@@ -120,6 +138,7 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 	i := 1
 	for ; ; i++ {
 		req, _ := http.NewRequest(http.MethodPost, service.URL.String(), bytes.NewReader(body))
+		req.Close = true
 		req.Header.Set("X-Forwarded-Selenosis", app.selenosisHost)
 		ctx, done := context.WithTimeout(r.Context(), app.browserWaitTimeout)
 		rsp, err := httpClient.Do(req.WithContext(ctx))
@@ -156,7 +175,6 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 		resp = rsp
 		break
 	}
-
 	defer resp.Body.Close()
 
 	var msg map[string]interface{}
@@ -178,8 +196,7 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 
 //HandleProxy ...
 func (app *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	sessionID, ok := vars["sessionId"]
+	sessionID, ok := mux.Vars(r)["sessionId"]
 	if !ok {
 		app.logger.WithField("request", fmt.Sprintf("%s %s", r.Method, r.URL.Path)).Error("session id not found")
 		tools.JSONError(w, "session id not found", http.StatusBadRequest)
@@ -192,7 +209,6 @@ func (app *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	host := tools.BuildHostPort(sessionID, app.serviceName, app.sidecarPort)
 	logger := app.logger.WithFields(logrus.Fields{
 		"request_id": uuid.New(),
 		"session_id": sessionID,
@@ -202,8 +218,8 @@ func (app *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 	(&httputil.ReverseProxy{
 		Director: func(r *http.Request) {
 			r.URL.Scheme = "http"
-			r.Host = host
-			r.URL.Host = host
+			r.Host = sessionID + "." + app.serviceName + ":" + app.sidecarPort
+			r.URL.Host = r.Host
 			r.Header.Set("X-Forwarded-Selenosis", app.selenosisHost)
 			logger.Info("proxying session")
 		},
@@ -216,32 +232,21 @@ func (app *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 //HandleHubStatus ...
-func (app *App) HandleHubStatus(w http.ResponseWriter, r *http.Request) {
-	logger := app.logger.WithFields(logrus.Fields{
-		"request_id": uuid.New(),
-		"request":    fmt.Sprintf("%s %s", r.Method, r.URL.Path),
-	})
-
+func (app *App) HandleHubStatus(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-
-	active, pending := getSessionStats(app.stats.Sessions().List())
-	total := len(active) + len(pending)
 
 	json.NewEncoder(w).Encode(
 		map[string]interface{}{
 			"value": map[string]interface{}{
 				"message": "selenosis up and running",
-				"ready":   total,
+				"ready":   len(app.stats.Sessions().List()),
 			},
 		})
-
-	logger.WithField("active_sessions", total).Infof("hub status")
 }
 
 //HandleReverseProxy ...
 func (app *App) HandleReverseProxy(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	sessionID, ok := vars["sessionId"]
+	sessionID, ok := mux.Vars(r)["sessionId"]
 	if !ok {
 		app.logger.WithField("request", fmt.Sprintf("%s %s", r.Method, r.URL.Path)).Error("session id not found")
 		tools.JSONError(w, "session id not found", http.StatusBadRequest)
@@ -264,7 +269,8 @@ func (app *App) HandleReverseProxy(w http.ResponseWriter, r *http.Request) {
 	(&httputil.ReverseProxy{
 		Director: func(r *http.Request) {
 			r.URL.Scheme = "http"
-			r.URL.Host = tools.BuildHostPort(sessionID, app.serviceName, app.sidecarPort)
+			r.Host = sessionID + "." + app.serviceName + ":" + app.sidecarPort
+			r.URL.Host = r.Host
 			r.Header.Set("X-Forwarded-Selenosis", app.selenosisHost)
 			logger.Infof("proxying %s", fragments[1])
 		},
@@ -280,8 +286,7 @@ func (app *App) HandleVNC() websocket.Handler {
 	return func(wsconn *websocket.Conn) {
 		defer wsconn.Close()
 
-		vars := mux.Vars(wsconn.Request())
-		sessionID, ok := vars["sessionId"]
+		sessionID, ok := mux.Vars(wsconn.Request())["sessionId"]
 		if !ok {
 			app.logger.WithField("request", fmt.Sprintf("%s %s", wsconn.Request().Method, wsconn.Request().URL.Path)).Error("session id not found")
 			return
@@ -300,7 +305,6 @@ func (app *App) HandleVNC() websocket.Handler {
 		})
 		logger.Infof("vnc request: %s", host)
 
-		var dialer net.Dialer
 		conn, err := dialer.DialContext(wsconn.Request().Context(), "tcp", host)
 		if err != nil {
 			logger.Errorf("vnc connection error: %v", err)
@@ -311,7 +315,6 @@ func (app *App) HandleVNC() websocket.Handler {
 		wsconn.PayloadType = websocket.BinaryFrame
 		go func() {
 			io.Copy(wsconn, conn)
-			wsconn.Close()
 			logger.Warnf("vnc connection closed")
 		}()
 		io.Copy(conn, wsconn)
@@ -324,8 +327,7 @@ func (app *App) HandleLogs() websocket.Handler {
 	return func(wsconn *websocket.Conn) {
 		defer wsconn.Close()
 
-		vars := mux.Vars(wsconn.Request())
-		sessionID, ok := vars["sessionId"]
+		sessionID, ok := mux.Vars(wsconn.Request())["sessionId"]
 		if !ok {
 			app.logger.WithField("request", fmt.Sprintf("%s %s", wsconn.Request().Method, wsconn.Request().URL.Path)).Error("session id not found")
 			return
@@ -362,33 +364,29 @@ func (app *App) HandleLogs() websocket.Handler {
 }
 
 //HandleStatus ...
-func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
+func (app *App) HandleStatus(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	type Status struct {
-		Total    int                 `json:"total"`
-		Active   int                 `json:"active"`
-		Pending  int                 `json:"pending"`
-		Browsers map[string][]string `json:"config,omitempty"`
-		Sessions []platform.Service  `json:"sessions,omitempty"`
+	var active []platform.Service
+	var pending int
+	for _, s := range app.stats.Sessions().List() {
+		switch s.Status {
+		case platform.Running:
+			s.Uptime = tools.TimeElapsed(s.Started)
+			active = append(active, s)
+		case platform.Pending:
+			pending++
+		}
 	}
 
-	type Response struct {
-		Status    int    `json:"status"`
-		Version   string `json:"version"`
-		Error     string `json:"err,omitempty"`
-		Selenosis Status `json:"selenosis,omitempty"`
-	}
-
-	active, pending := getSessionStats(app.stats.Sessions().List())
 	json.NewEncoder(w).Encode(
-		Response{
+		response{
 			Status:  http.StatusOK,
 			Version: app.buildVersion,
 			Selenosis: Status{
 				Total:    app.sessionLimit,
 				Active:   len(active),
-				Pending:  len(pending),
+				Pending:  pending,
 				Browsers: app.browsers.GetBrowserVersions(),
 				Sessions: active,
 			},
@@ -397,7 +395,6 @@ func (app *App) HandleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func parseImage(image string) (container string) {
-	browser := "browser"
 	if len(image) > 0 {
 		pref, err := regexp.Compile("[^a-zA-Z0-9]+")
 		if err != nil {
@@ -430,19 +427,4 @@ func isValidSession(session string) bool {
 		}
 	}
 	return false
-}
-
-func getSessionStats(sessions []platform.Service) (active []platform.Service, pending []platform.Service) {
-	active = make([]platform.Service, 0)
-	pending = make([]platform.Service, 0)
-
-	for _, s := range sessions {
-		switch s.Status {
-		case platform.Running:
-			active = append(active, s)
-		case platform.Pending:
-			pending = append(pending, s)
-		}
-	}
-	return
 }
