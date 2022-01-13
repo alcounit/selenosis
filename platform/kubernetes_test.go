@@ -20,80 +20,64 @@ import (
 )
 
 func TestPodRequestedWithVideo(t *testing.T) {
-	tests := map[string]struct {
-		ns        string
-		layout    ServiceSpec
-	}{
-		"Verify pod spec containers includes a video container if video was requested as a capability": {
-			layout: ServiceSpec{
-				SessionID: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
-				RequestedCapabilities: selenium.Capabilities{
-					VNC: true,
-					Video: true,
-				},
-				Template: BrowserSpec{
-					BrowserName:    "chrome",
-					BrowserVersion: "85.0",
-					Image:          "selenoid/vnc:chrome_85.0",
-					Path:           "/",
-				},
+	t.Logf("TC: %s", "Verify pod spec containers includes a video container if video was requested as a capability")
+	params := struct{ ns string; layout ServiceSpec }{
+		ns: "selenosis",
+		layout: ServiceSpec{
+			SessionID: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
+			RequestedCapabilities: selenium.Capabilities{
+				VNC: true,
+				Video: true,
+			},
+			Template: BrowserSpec{
+				BrowserName:    "chrome",
+				BrowserVersion: "85.0",
+				Image:          "selenoid/vnc:chrome_85.0",
+				Path:           "/",
 			},
 		},
 	}
 
-	for name, test := range tests {
+	mock := fake.NewSimpleClientset()
 
-		t.Logf("TC: %s", name)
-
-		mock := fake.NewSimpleClientset()
-
-		service := &service{
-			ns: test.ns,
-			clientset: mock,
-		}
-
-		pod := service.BuildPod(test.layout)
-
-		assert.Equal(t, "video", pod.Spec.Containers[2].Name)
+	service := &service{
+		ns: params.ns,
+		clientset: mock,
 	}
+
+	pod := service.BuildPod(params.layout)
+
+	assert.Equal(t, "video", pod.Spec.Containers[2].Name)
 }
 
 func TestPodWithoutVideo(t *testing.T) {
-	tests := map[string]struct {
-		ns        string
-		layout    ServiceSpec
-	}{
-		"Verify that if video is not requested, the pod spec only includes 2 containers": {
-			layout: ServiceSpec{
-				SessionID: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
-				RequestedCapabilities: selenium.Capabilities{
-					VNC: true,
-				},
-				Template: BrowserSpec{
-					BrowserName:    "chrome",
-					BrowserVersion: "85.0",
-					Image:          "selenoid/vnc:chrome_85.0",
-					Path:           "/",
-				},
+	params := struct { ns string; layout ServiceSpec } {
+		layout: ServiceSpec{
+			SessionID: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
+			RequestedCapabilities: selenium.Capabilities{
+				VNC: true,
+			},
+			Template: BrowserSpec{
+				BrowserName:    "chrome",
+				BrowserVersion: "85.0",
+				Image:          "selenoid/vnc:chrome_85.0",
+				Path:           "/",
 			},
 		},
 	}
 
-	for name, test := range tests {
+	t.Logf("TC: %s", "Verify that if video is not requested, the pod spec only includes 2 containers")
 
-		t.Logf("TC: %s", name)
+	mock := fake.NewSimpleClientset()
 
-		mock := fake.NewSimpleClientset()
-
-		service := &service{
-			ns: test.ns,
-			clientset: mock,
-		}
-
-		pod := service.BuildPod(test.layout)
-
-		assert.Equal(t, 2, len(pod.Spec.Containers))
+	service := &service{
+		ns: params.ns,
+		clientset: mock,
 	}
+
+	pod := service.BuildPod(params.layout)
+
+	assert.Equal(t, 2, len(pod.Spec.Containers))
 }
 
 func TestErrorsOnServiceCreate(t *testing.T) {
