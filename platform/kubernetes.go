@@ -98,6 +98,7 @@ func NewClient(c ClientConfig) (Platform, error) {
 		svcPort:             intstr.FromString(c.ServicePort),
 		imagePullSecretName: c.ImagePullSecretName,
 		proxyImage:          c.ProxyImage,
+		videoImage:			 c.VideoImage,
 		readinessTimeout:    c.ReadinessTimeout,
 		idleTimeout:         c.IdleTimeout,
 	}

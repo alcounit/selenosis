@@ -21,8 +21,10 @@ import (
 
 func TestPodRequestedWithVideo(t *testing.T) {
 	t.Logf("TC: %s", "Verify pod spec containers includes a video container if video was requested as a capability")
-	params := struct{ ns string; layout ServiceSpec }{
+	params := struct{ ns string; layout ServiceSpec; videoImage string; containerName string }{
 		ns: "selenosis",
+		videoImage: "selenoid/video-recorder",
+		containerName: "video",
 		layout: ServiceSpec{
 			SessionID: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
 			RequestedCapabilities: selenium.Capabilities{
@@ -43,11 +45,13 @@ func TestPodRequestedWithVideo(t *testing.T) {
 	service := &service{
 		ns: params.ns,
 		clientset: mock,
+		videoImage: params.videoImage,
 	}
 
 	pod := service.BuildPod(params.layout)
 
-	assert.Equal(t, "video", pod.Spec.Containers[2].Name)
+	assert.Equal(t, params.containerName, pod.Spec.Containers[2].Name)
+	assert.Equal(t, params.videoImage, pod.Spec.Containers[2].Image)
 }
 
 func TestPodWithoutVideo(t *testing.T) {
