@@ -658,7 +658,7 @@ func getBrowserPorts() []apiv1.ContainerPort {
 
 	fn("vnc", browserPorts.vnc.IntValue())
 	fn("selenium", browserPorts.selenium.IntValue())
-	fn("video", browserPorts.selenium.IntValue())
+	fn("video", browserPorts.video.IntValue())
 
 	return port
 }
