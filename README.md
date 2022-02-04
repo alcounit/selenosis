@@ -704,6 +704,7 @@ List of capabilities required for selenoid-ui compatibility:
 | enableVNC        | boolean | enables VNC support      |
 | name             | string  | name of test             |
 | screenResolution | string  | custom screen resolution |
+| enableVideo      | boolean | enables Video capture    |
 
 </br>
  Note: you can omit browser version in your desired capabilities, make sure you set defaultVersion property in the config file.

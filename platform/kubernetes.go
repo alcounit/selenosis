@@ -37,13 +37,14 @@ var (
 	}
 
 	defaultsAnnotations = struct {
-		testName, browserName, browserVersion, screenResolution, enableVNC, videoName, timeZone string
+		testName, browserName, browserVersion, screenResolution, enableVNC, enableVideo, videoName, timeZone string
 	}{
 		testName:         "testName",
 		browserName:      "browserName",
 		browserVersion:   "browserVersion",
 		screenResolution: "SCREEN_RESOLUTION",
 		enableVNC:        "ENABLE_VNC",
+		enableVideo:      "ENABLE_VIDEO"
 		timeZone:         "TZ",
 		videoName:        "",
 	}
@@ -361,6 +362,21 @@ func (cl *service) Create(layout ServiceSpec) (Service, error) {
 		}
 	}
 
+	i, b = envVar(defaultsAnnotations.enableVideo)
+	if layout.RequestedCapabilities.enableVideo {
+		vnc := fmt.Sprintf("%v", layout.RequestedCapabilities.VNC)
+		if !b {
+			layout.Template.Spec.EnvVars = append(layout.Template.Spec.EnvVars, apiv1.EnvVar{Name: defaultsAnnotations.enableVideo, Value: video})
+		} else {
+			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaultsAnnotations.enableVideo, Value: video}
+		}
+		annontations[defaultsAnnotations.enableVideo] = video
+	} else {
+		if b {
+			annontations[defaultsAnnotations.enableVideo] = layout.Template.Spec.EnvVars[i].Value
+		}
+	}
+
 	i, b = envVar(defaultsAnnotations.timeZone)
 	if layout.RequestedCapabilities.TimeZone != "" {
 		if !b {
@@ -374,6 +390,7 @@ func (cl *service) Create(layout ServiceSpec) (Service, error) {
 			annontations[defaultsAnnotations.timeZone] = layout.Template.Spec.EnvVars[i].Value
 		}
 	}
+	
 
 	if layout.Template.Meta.Labels == nil {
 		layout.Template.Meta.Labels = make(map[string]string)
