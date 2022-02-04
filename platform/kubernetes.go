@@ -363,8 +363,8 @@ func (cl *service) Create(layout ServiceSpec) (Service, error) {
 	}
 
 	i, b = envVar(defaultsAnnotations.enableVideo)
-	if layout.RequestedCapabilities.enableVideo {
-		vnc := fmt.Sprintf("%v", layout.RequestedCapabilities.VNC)
+	if layout.RequestedCapabilities.Video {
+		video := fmt.Sprintf("%v", layout.RequestedCapabilities.Video)
 		if !b {
 			layout.Template.Spec.EnvVars = append(layout.Template.Spec.EnvVars, apiv1.EnvVar{Name: defaultsAnnotations.enableVideo, Value: video})
 		} else {
