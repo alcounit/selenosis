@@ -44,7 +44,7 @@ var (
 		browserVersion:   "browserVersion",
 		screenResolution: "SCREEN_RESOLUTION",
 		enableVNC:        "ENABLE_VNC",
-		enableVideo:      "ENABLE_VIDEO"
+		enableVideo:      "ENABLE_VIDEO",
 		timeZone:         "TZ",
 		videoName:        "",
 	}
