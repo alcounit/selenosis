@@ -47,7 +47,7 @@ var (
 		enableVNC:        "ENABLE_VNC",
 		enableVideo:      "ENABLE_VIDEO",
 		timeZone:         "TZ",
-		videoName:        "VIDEO_NAME",
+		videoName:        "FILE_NAME",
 	}
 	defaultLabels = struct {
 		serviceType, appType, session string
