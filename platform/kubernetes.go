@@ -371,6 +371,7 @@ func (cl *service) Create(layout ServiceSpec) (Service, error) {
 		} else {
 			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaultsAnnotations.enableVideo, Value: video}
 		}
+		layout.Template.Spec.EnvVars = append(layout.Template.Spec.EnvVars, apiv1.EnvVar{Name: "BROWSER_CONTAINER_NAME", Value: "localhost"})
 		i, b = envVar(defaultsAnnotations.videoName)
 		videoName := fmt.Sprintf("%v", layout.RequestedCapabilities.VideoName)
 		if videoName == "" {
