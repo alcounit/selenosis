@@ -30,10 +30,11 @@ var (
 	label        = "selenosis.app.type"
 	quotaName    = "selenosis-pod-limit"
 	browserPorts = struct {
-		selenium, vnc intstr.IntOrString
+		selenium, vnc, video intstr.IntOrString
 	}{
 		selenium: intstr.FromString("4444"),
 		vnc:      intstr.FromString("5900"),
+		video:    intstr.FromString("6099"),
 	}
 
 	defaultsAnnotations = struct {
@@ -657,6 +658,7 @@ func getBrowserPorts() []apiv1.ContainerPort {
 
 	fn("vnc", browserPorts.vnc.IntValue())
 	fn("selenium", browserPorts.selenium.IntValue())
+	fn("video", browserPorts.selenium.IntValue())
 
 	return port
 }
