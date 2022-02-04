@@ -47,7 +47,7 @@ var (
 		enableVNC:        "ENABLE_VNC",
 		enableVideo:      "ENABLE_VIDEO",
 		timeZone:         "TZ",
-		videoName:        "",
+		videoName:        "VIDEO_NAME",
 	}
 	defaultLabels = struct {
 		serviceType, appType, session string
@@ -371,7 +371,18 @@ func (cl *service) Create(layout ServiceSpec) (Service, error) {
 		} else {
 			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaultsAnnotations.enableVideo, Value: video}
 		}
+		i, b = envVar(defaultsAnnotations.videoName)
+		videoName := fmt.Sprintf("%v", layout.RequestedCapabilities.VideoName)
+		if videoName == "" {
+			videoName = fmt.Sprintf("%v.mp4", layout.SessionID)
+		}
+		if !b {
+			layout.Template.Spec.EnvVars = append(layout.Template.Spec.EnvVars, apiv1.EnvVar{Name: defaultsAnnotations.videoName, Value: videoName})
+		} else {
+			layout.Template.Spec.EnvVars[i] = apiv1.EnvVar{Name: defaultsAnnotations.videoName, Value: video}
+		}
 		annontations[defaultsAnnotations.enableVideo] = video
+		annontations[defaultsAnnotations.videoName] = videoName
 	} else {
 		if b {
 			annontations[defaultsAnnotations.enableVideo] = layout.Template.Spec.EnvVars[i].Value
@@ -563,6 +574,7 @@ func (cl *service) BuildPod(layout ServiceSpec) *apiv1.Pod {
 			Image: cl.videoImage,
 			Ports: getVideoPorts(),
 			Command: []string{},
+			Env: layout.Template.Spec.EnvVars,
 			VolumeMounts: getVolumeMounts(layout.Template.Spec.VolumeMounts),
 			ImagePullPolicy: apiv1.PullIfNotPresent,
 		}
