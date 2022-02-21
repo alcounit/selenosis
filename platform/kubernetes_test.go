@@ -82,6 +82,11 @@ func TestPodWithoutVideo(t *testing.T) {
 	pod := service.BuildPod(params.layout)
 
 	assert.Equal(t, 2, len(pod.Spec.Containers))
+	
+	t.Logf("TC: %s", "Verify that if video is not requested, the video container doesn't get the pre-stop lifecycle hook")
+
+	var expected *apiv1.Lifecycle = nil
+	assert.Equal(t, pod.Spec.Containers[0].Lifecycle, expected)
 }
 
 func TestErrorsOnServiceCreate(t *testing.T) {

@@ -65,7 +65,7 @@ type ClientConfig struct {
 	ServicePort         string
 	ImagePullSecretName string
 	ProxyImage          string
-	VideoImage			string
+	VideoImage          string
 	ReadinessTimeout    time.Duration
 	IdleTimeout         time.Duration
 }
@@ -100,7 +100,7 @@ func NewClient(c ClientConfig) (Platform, error) {
 		svcPort:             intstr.FromString(c.ServicePort),
 		imagePullSecretName: c.ImagePullSecretName,
 		proxyImage:          c.ProxyImage,
-		videoImage:			 c.VideoImage,
+		videoImage:          c.VideoImage,
 		readinessTimeout:    c.ReadinessTimeout,
 		idleTimeout:         c.IdleTimeout,
 	}
@@ -403,7 +403,6 @@ func (cl *service) Create(layout ServiceSpec) (Service, error) {
 			annontations[defaultsAnnotations.timeZone] = layout.Template.Spec.EnvVars[i].Value
 		}
 	}
-	
 
 	if layout.Template.Meta.Labels == nil {
 		layout.Template.Meta.Labels = make(map[string]string)
@@ -546,13 +545,6 @@ func (cl *service) BuildPod(layout ServiceSpec) *apiv1.Pod {
 					Resources:       layout.Template.Spec.Resources,
 					VolumeMounts:    getVolumeMounts(layout.Template.Spec.VolumeMounts),
 					ImagePullPolicy: apiv1.PullIfNotPresent,
-					Lifecycle: &apiv1.Lifecycle{
-						PreStop: &apiv1.Handler{
-							Exec: &apiv1.ExecAction{
-								Command: []string{"sh", "-c", "sleep 5"},
-							},
-						},
-					},
 				},
 				{
 					Name:  "seleniferous",
@@ -578,14 +570,22 @@ func (cl *service) BuildPod(layout ServiceSpec) *apiv1.Pod {
 
 	if layout.RequestedCapabilities.Video {
 		videoContainer := apiv1.Container{
-			Name: "video",
-			Image: cl.videoImage,
-			Ports: getVideoPorts(),
-			Command: []string{},
-			Env: layout.Template.Spec.EnvVars,
-			VolumeMounts: getVolumeMounts(layout.Template.Spec.VolumeMounts),
+			Name:            "video",
+			Image:           cl.videoImage,
+			Ports:           getVideoPorts(),
+			Command:         []string{},
+			Env:             layout.Template.Spec.EnvVars,
+			VolumeMounts:    getVolumeMounts(layout.Template.Spec.VolumeMounts),
 			ImagePullPolicy: apiv1.PullIfNotPresent,
 		}
+		lifecycle := &apiv1.Lifecycle{
+			PreStop: &apiv1.Handler{
+				Exec: &apiv1.ExecAction{
+					Command: []string{"sh", "-c", "sleep 5"},
+				},
+			},
+		}
+		pod.Spec.Containers[0].Lifecycle = lifecycle
 		pod.Spec.Containers = append(pod.Spec.Containers, videoContainer)
 	}
 	return pod
