@@ -546,6 +546,13 @@ func (cl *service) BuildPod(layout ServiceSpec) *apiv1.Pod {
 					Resources:       layout.Template.Spec.Resources,
 					VolumeMounts:    getVolumeMounts(layout.Template.Spec.VolumeMounts),
 					ImagePullPolicy: apiv1.PullIfNotPresent,
+					Lifecycle: &apiv1.Lifecycle{
+						PreStop: &apiv1.Handler{
+							Exec: &apiv1.ExecAction{
+								Command: []string{"sh", "-c", "sleep 5"},
+							},
+						},
+					},
 				},
 				{
 					Name:  "seleniferous",
@@ -578,13 +585,6 @@ func (cl *service) BuildPod(layout ServiceSpec) *apiv1.Pod {
 			Env: layout.Template.Spec.EnvVars,
 			VolumeMounts: getVolumeMounts(layout.Template.Spec.VolumeMounts),
 			ImagePullPolicy: apiv1.PullIfNotPresent,
-			Lifecycle: &apiv1.Lifecycle{
-				PreStop: &apiv1.Handler{
-					Exec: &apiv1.ExecAction{
-						Command: []string{"kill -15 1"},
-					},
-				},
-			},
 		}
 		pod.Spec.Containers = append(pod.Spec.Containers, videoContainer)
 	}
