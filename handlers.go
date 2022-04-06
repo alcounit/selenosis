@@ -164,6 +164,9 @@ func (app *App) HandleSession(w http.ResponseWriter, r *http.Request) {
 		default:
 		}
 		if err != nil {
+			if strings.HasSuffix(err.Error(), ": no such host") {
+				continue
+			}
 			logger.WithField("time_elapsed", tools.TimeElapsed(start)).Errorf("session failed: %v", err)
 			tools.JSONError(w, "New session attempts retry count exceeded", http.StatusInternalServerError)
 			cancel()
@@ -225,7 +228,7 @@ func (app *App) HandleProxy(w http.ResponseWriter, r *http.Request) {
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.Errorf("proxying session error: %v", err)
-			w.WriteHeader(http.StatusBadGateway)
+			tools.JSONError(w, fmt.Sprintf("proxying session error: %v", err), http.StatusBadGateway)
 		},
 	}).ServeHTTP(w, r)
 
