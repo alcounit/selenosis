@@ -34,7 +34,7 @@ func command() *cobra.Command {
 		service             string
 		imagePullSecretName string
 		proxyImage          string
-		videoImage			string
+		videoImage          string
 		sessionRetryCount   int
 		limit               int
 		browserWaitTimeout  time.Duration
@@ -70,7 +70,7 @@ func command() *cobra.Command {
 				ServicePort:         proxyPort,
 				ImagePullSecretName: imagePullSecretName,
 				ProxyImage:          proxyImage,
-				VideoImage:			 videoImage,
+				VideoImage:          videoImage,
 			})
 
 			if err != nil {
