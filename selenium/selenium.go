@@ -1,5 +1,7 @@
 package selenium
 
+import "github.com/imdario/mergo"
+
 //Capabilities ...
 type Capabilities struct {
 	BrowserName           string            `json:"browserName,omitempty"`
@@ -28,6 +30,7 @@ type Capabilities struct {
 	DNSServers            []string          `json:"dnsServers,omitempty"`
 	Labels                map[string]string `json:"labels,omitempty"`
 	SessionTimeout        string            `json:"sessionTimeout,omitempty"`
+	ExtensionCapabilities *Capabilities     `json:"selenoid:options,onitemempty"`
 }
 
 //ValidateCapabilities ...
@@ -38,6 +41,10 @@ func (c *Capabilities) ValidateCapabilities() {
 
 	if c.WC3PlatformName != "" {
 		c.Platform = c.WC3PlatformName
+	}
+
+	if c.ExtensionCapabilities != nil {
+		mergo.Merge(c, *c.ExtensionCapabilities, mergo.WithOverride) //We probably need to handle returned error
 	}
 }
 
