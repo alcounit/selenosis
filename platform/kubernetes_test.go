@@ -19,6 +19,76 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
+func TestPodRequestedWithVideo(t *testing.T) {
+	t.Logf("TC: %s", "Verify pod spec containers includes a video container if video was requested as a capability")
+	params := struct{ ns string; layout ServiceSpec; videoImage string; containerName string }{
+		ns: "selenosis",
+		videoImage: "selenoid/video-recorder",
+		containerName: "video",
+		layout: ServiceSpec{
+			SessionID: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
+			RequestedCapabilities: selenium.Capabilities{
+				VNC: true,
+				Video: true,
+			},
+			Template: BrowserSpec{
+				BrowserName:    "chrome",
+				BrowserVersion: "85.0",
+				Image:          "selenoid/vnc:chrome_85.0",
+				Path:           "/",
+			},
+		},
+	}
+
+	mock := fake.NewSimpleClientset()
+
+	service := &service{
+		ns: params.ns,
+		clientset: mock,
+		videoImage: params.videoImage,
+	}
+
+	pod := service.BuildPod(params.layout)
+
+	assert.Equal(t, params.containerName, pod.Spec.Containers[2].Name)
+	assert.Equal(t, params.videoImage, pod.Spec.Containers[2].Image)
+}
+
+func TestPodWithoutVideo(t *testing.T) {
+	params := struct { ns string; layout ServiceSpec } {
+		layout: ServiceSpec{
+			SessionID: "chrome-85-0-de44c3c4-1a35-412b-b526-f5da802144911",
+			RequestedCapabilities: selenium.Capabilities{
+				VNC: true,
+			},
+			Template: BrowserSpec{
+				BrowserName:    "chrome",
+				BrowserVersion: "85.0",
+				Image:          "selenoid/vnc:chrome_85.0",
+				Path:           "/",
+			},
+		},
+	}
+
+	t.Logf("TC: %s", "Verify that if video is not requested, the pod spec only includes 2 containers")
+
+	mock := fake.NewSimpleClientset()
+
+	service := &service{
+		ns: params.ns,
+		clientset: mock,
+	}
+
+	pod := service.BuildPod(params.layout)
+
+	assert.Equal(t, 2, len(pod.Spec.Containers))
+	
+	t.Logf("TC: %s", "Verify that if video is not requested, the video container doesn't get the pre-stop lifecycle hook")
+
+	var expected *apiv1.Lifecycle = nil
+	assert.Equal(t, pod.Spec.Containers[0].Lifecycle, expected)
+}
+
 func TestErrorsOnServiceCreate(t *testing.T) {
 	tests := map[string]struct {
 		ns        string

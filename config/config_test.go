@@ -77,18 +77,18 @@ func TestConfigFile(t *testing.T) {
 
 	tests := map[string]struct {
 		data string
-		err  error
+		err  string
 	}{
 		"verify config file not exist": {
 			data: empty,
-			err:  errors.New("failed to read config: read error: open : The system cannot find the file specified."),
+			err:  "failed to read config: read error: open",
 		},
 	}
 
 	for name, test := range tests {
 		t.Logf("TC: %s", name)
 		_, err := NewBrowsersConfig(test.data)
-		assert.Equal(t, test.err, err)
+		assert.Contains(t, err.Error(), test.err)
 	}
 }
 
