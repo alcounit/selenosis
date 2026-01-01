@@ -1,25 +1,30 @@
-FROM golang:1.15-alpine AS builder
 
-ARG BUILD_VERSION
-
-RUN apk add --quiet --no-cache build-base git
+FROM golang:1.24.4 AS builder
 
 WORKDIR /src
 
-ENV GO111MODULE=on
-
-ADD go.* ./
-
+COPY go.mod go.sum ./
 RUN go mod download
 
-ADD . .
+COPY . .
 
-RUN cd cmd/selenosis && \
-    go install -ldflags="-X main.buildVersion=$BUILD_VERSION -linkmode external -extldflags '-static' -s -w"
+ENV CGO_ENABLED=0 \
+    GOOS=linux \
+    GOARCH=amd64
+
+RUN go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -o /out/selenosis \
+    ./cmd/selenosis-controller
 
 
-FROM scratch
+FROM gcr.io/distroless/static:nonroot
 
-COPY --from=builder /go/bin/selenosis /
+WORKDIR /
+
+COPY --from=builder /out/selenosis /selenosis
+
+USER 65532:65532
 
 ENTRYPOINT ["/selenosis"]
