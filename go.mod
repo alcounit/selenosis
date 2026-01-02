@@ -1,4 +1,4 @@
-module github.com/alcounit/selenosis
+module github.com/alcounit/selenosis/v2
 
 go 1.24.4
 
