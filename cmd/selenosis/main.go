@@ -12,8 +12,8 @@ import (
 
 	logctx "github.com/alcounit/browser-controller/pkg/log"
 	"github.com/alcounit/browser-service/pkg/client"
-	"github.com/alcounit/selenosis/internal/service"
-	"github.com/alcounit/selenosis/pkg/env"
+	"github.com/alcounit/selenosis/v2/internal/service"
+	"github.com/alcounit/selenosis/v2/pkg/env"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
