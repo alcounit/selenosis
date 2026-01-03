@@ -8,6 +8,7 @@ require (
 	github.com/alcounit/browser-service v0.0.1
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/rs/zerolog v1.34.0
 	github.com/tebeka/selenium v0.9.9
 	k8s.io/apimachinery v0.35.0
@@ -38,5 +39,3 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 )
-
-require github.com/gorilla/websocket v1.5.3

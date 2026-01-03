@@ -5,7 +5,6 @@ A stateless Selenium hub for Kubernetes that creates a browser pod per session a
 - Accepts standard WebDriver requests at `/wd/hub` (and root).
 - Creates a `Browser` resource via `browser-service` based on requested capabilities.
 - Waits for the browser pod to become ready, then proxies traffic to the sidecar `seleniferous` inside that pod.
-- Encodes the pod IP into a UUID session id so routing stays stateless.
 
 ## Requirements
 - Kubernetes cluster.
@@ -43,7 +42,7 @@ Selenosis exposes Selenium-compatible endpoints on both `/` and `/wd/hub`.
 
 ## Example: create session
 ```bash
-curl -sS -X POST http://localhost:4444/wd/hub/session \
+curl -sS -X POST http://{selenosis_host}:{selenosis_port}/wd/hub/session \
   -H 'Content-Type: application/json' \
   -d '{
     "capabilities": {
@@ -59,7 +58,7 @@ The response is proxied from the browser and contains the `sessionId` used for s
 
 ## Example: proxy a command
 ```bash
-curl -sS -X GET http://localhost:4444/wd/hub/session/<sessionId>/url
+curl -sS -X GET http://{selenosis_host}:{selenosis_port}/wd/hub/session/<sessionId>/url
 ```
 
 ## Networking and headers
@@ -69,16 +68,23 @@ If you run behind a reverse proxy or ingress, set these headers so Selenosis can
 
 Selenosis also adds `Selenosis-Request-ID` to outgoing requests for tracing.
 
-## Docker
-Build and run locally:
+## Build and image workflow
 
-```bash
-docker build -t selenosis:local .
+The project is built and packaged entirely via Docker. Local Go installation is not required for producing the final artifact.
 
-docker run --rm -p 4444:4444 \
-  -e BROWSER_SERVICE_URL=http://browser-service:8080 \
-  -e NAMESPACE=default \
-  selenosis:local
-```
+## Build variables
 
-In Kubernetes, point `BROWSER_SERVICE_URL` to the in-cluster service and expose `LISTEN_ADDR` as needed.
+The build process is controlled via the following Makefile variables:
+
+Variable	Description
+- BINARY_NAME	Name of the produced binary (selenosis).
+- DOCKER_REGISTRY	Docker registry prefix (passed via environment).
+- IMAGE_NAME	Full image name (<registry>/selenosis).
+- VERSION	Image version/tag (default: v2.0.0).
+- PLATFORM	Target platform (default: linux/amd64).
+
+DOCKER_REGISTRY is expected to be provided externally, which allows the same Makefile to be used locally and in CI.
+
+## Deployment
+
+To be added....
