@@ -8,9 +8,9 @@ A stateless Selenium hub for Kubernetes that creates a browser pod per session a
 
 ## Requirements
 - Kubernetes cluster.
-- `[browser-controller](https://github.com/alcounit/browser-controller)` CRDs installed (for `Browser` resources).
-- `[browser-service](https://github.com/alcounit/browser-service)` running and reachable at `BROWSER_SERVICE_URL`.
-- Browser pod image includes `[seleniferous](https://github.com/alcounit/seleniferous)` sidecar listening on `PROXY_PORT`.
+- [browser-controller](https://github.com/alcounit/browser-controller) CRDs installed (for `Browser` resources).
+- [browser-service](https://github.com/alcounit/browser-service) running and reachable at `BROWSER_SERVICE_URL`.
+- Browser pod image includes [seleniferous](https://github.com/alcounit/seleniferous) sidecar listening on `PROXY_PORT`.
 
 ## Configuration
 Selenosis is configured via environment variables:
