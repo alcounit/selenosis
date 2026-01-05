@@ -1,5 +1,5 @@
 
-FROM golang:1.24.4 AS builder
+FROM golang:1.25.0 AS builder
 
 WORKDIR /src
 
@@ -16,7 +16,7 @@ RUN go build \
     -trimpath \
     -ldflags="-s -w" \
     -o /out/selenosis \
-    ./cmd/selenosis-controller
+    ./cmd/selenosis
 
 
 FROM gcr.io/distroless/static:nonroot

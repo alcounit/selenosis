@@ -1,5 +1,5 @@
 BINARY_NAME       := selenosis
-DOCKER_REGISTRY   := 192.168.1.101:30000
+DOCKER_REGISTRY   := ${REGISTRY}
 IMAGE_NAME        := $(DOCKER_REGISTRY)/$(BINARY_NAME)
 VERSION           ?= v2.0.0
 PLATFORM          := linux/amd64
