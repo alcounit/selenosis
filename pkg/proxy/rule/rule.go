@@ -53,12 +53,13 @@ func SafeRewrite(rule Rule, original string) string {
 }
 
 func LoadRulesFromEnv(envVarName string) ([]Rule, error) {
+	var rules []Rule
+
 	env := os.Getenv(envVarName)
 	if env == "" {
-		return nil, fmt.Errorf("%s env var is empty", envVarName)
+		return rules, nil
 	}
 
-	var rules []Rule
 	if err := json.Unmarshal([]byte(env), &rules); err != nil {
 		return nil, fmt.Errorf("cannot parse JSON from %s: %w", envVarName, err)
 	}
