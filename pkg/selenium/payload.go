@@ -86,3 +86,46 @@ func UpdateBiDiURL(scheme, host, oldSessionId, newSessionId string, payload Payl
 
 	caps["webSocketUrl"] = parsedURL.String()
 }
+
+func UpdateChromeCDPURL(scheme, host, oldSessionId, newSessionId string, payload Payload) {
+	rawValue, ok := payload["value"]
+	if !ok {
+		return
+	}
+
+	value, ok := rawValue.(map[string]any)
+	if !ok {
+		return
+	}
+
+	rawCaps, ok := value["capabilities"]
+	if !ok {
+		return
+	}
+
+	caps, ok := rawCaps.(map[string]any)
+	if !ok {
+		return
+	}
+
+	rawCDPURL, ok := caps["se:cdp"]
+	if !ok {
+		return
+	}
+
+	cdpURLStr, ok := rawCDPURL.(string)
+	if !ok || cdpURLStr == "" {
+		return
+	}
+
+	parsedURL, err := url.Parse(cdpURLStr)
+	if err != nil {
+		return
+	}
+
+	parsedURL.Scheme = scheme
+	parsedURL.Host = host
+	parsedURL.Path = strings.Replace(parsedURL.Path, oldSessionId, newSessionId, 1)
+
+	caps["se:cdp"] = parsedURL.String()
+}
