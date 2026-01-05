@@ -93,10 +93,13 @@ func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
 		},
 	}
 
-	log.Info().
-		Str("browser", template.Spec.BrowserName).
-		Str("version", template.Spec.BrowserVersion).
-		Msg("creating browser resource")
+	log = log.With().
+		Str("browserName", template.Spec.BrowserName).
+		Str("versionVersion", template.Spec.BrowserVersion).
+		Str("namespace", s.config.Namespace).
+		Logger()
+
+	log.Info().Msg("creating browser resource")
 
 	result, err := s.client.CreateBrowser(req.Context(), s.config.Namespace, template)
 	if err != nil {
@@ -114,7 +117,7 @@ func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
 
 	stream, err := s.client.Events(ctx, s.config.Namespace)
 	if err != nil {
-		log.Err(err).Str("browserId", browserName).Msg("failed to start browser event stream")
+		log.Err(err).Str("name", browserName).Msg("failed to start browser event stream")
 		writeErrorResponse(rw, http.StatusInternalServerError, selenium.Error("failed to start browser event stream", err))
 		return
 	}
@@ -127,45 +130,37 @@ waitLoop:
 		select {
 		case event, ok := <-stream.Events():
 			if !ok {
-				log.Error().Str("browserId", browserName).Msg("browser event stream closed unexpectedly")
+				log.Error().Str("name", browserName).Msg("browser event stream closed unexpectedly")
 				writeErrorResponse(rw, http.StatusInternalServerError, selenium.ErrUnknown(ErrInternal))
 				return
 			}
 
 			if event.Browser == nil {
-				log.Warn().Str("browserId", browserName).Msg("received browser event with nil browser")
-				continue
-			}
-
-			if event.Browser.GetName() != browserName {
-				continue
-			}
-
-			if event.Browser.Status.PodIP == "" {
+				log.Warn().Str("name", browserName).Msg("received browser event with nil browser")
 				continue
 			}
 
 			switch event.Browser.Status.Phase {
 			case "Failed":
-				log.Error().Str("browserId", browserName).Msg("browser failed to start")
-				writeErrorResponse(rw, http.StatusInternalServerError, selenium.ErrUnknown(err))
+				log.Error().Str("name", browserName).Str("statusReason", event.Browser.Status.Reason).Msg("browser failed to start")
+				writeErrorResponse(rw, http.StatusInternalServerError, selenium.Error("browser failed to start", ErrInternal))
 				return
 
 			case "Running":
 				podIP = event.Browser.Status.PodIP
-				log.Info().Str("browserId", browserName).Msg("browser successfully started")
+				log.Info().Str("name", browserName).Msg("browser successfully started")
 				break waitLoop
 			}
 
 		case err, ok := <-stream.Errors():
 			if ok && err != nil {
-				log.Error().Str("browserId", browserName).Msg("browser event stream error")
+				log.Error().Str("name", browserName).Msg("browser event stream error")
 				writeErrorResponse(rw, http.StatusInternalServerError, selenium.ErrUnknown(err))
 				return
 			}
 
 		case <-ctx.Done():
-			log.Info().Str("browserId", browserName).Msg("context cancelled, stopping browser event stream")
+			log.Info().Str("name", browserName).Msg("context cancelled, stopping browser event stream")
 			writeErrorResponse(rw, http.StatusInternalServerError, selenium.ErrUnknown(ErrInternal))
 			return
 		}
