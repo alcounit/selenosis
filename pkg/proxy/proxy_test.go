@@ -27,6 +27,12 @@ func (fet *fakeErrorTransport) RoundTrip(req *http.Request) (*http.Response, err
 	return nil, errors.New("backend unavailable")
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
 func TestWithTransport(t *testing.T) {
 	ft := &fakeTransport{}
 	rp := NewHTTPReverseProxy(WithTransport(ft))
@@ -48,7 +54,7 @@ func TestWithRequestModifier(t *testing.T) {
 		r.URL.Host = "modified-host"
 		r.URL.Scheme = "http"
 	}
-	rp := NewHTTPReverseProxy(WithRequestModifier(modifier))
+	rp := NewHTTPReverseProxy(WithRequestModifier(modifier), WithTransport(&fakeTransport{}))
 
 	req := httptest.NewRequest("GET", "http://example.com/", nil)
 	w := httptest.NewRecorder()
@@ -66,15 +72,17 @@ func TestWithResponseModifier(t *testing.T) {
 		resp.Body = io.NopCloser(bytes.NewBufferString("modified-response"))
 		return nil
 	}
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewBufferString("original-response")),
+			Header:     make(http.Header),
+		}, nil
+	})
 
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("original-response"))
-	}))
-	defer backend.Close()
-
-	rp := NewHTTPReverseProxy(WithResponseModifier(respMod))
+	rp := NewHTTPReverseProxy(WithResponseModifier(respMod), WithTransport(rt))
 	rp.rp.Director = func(r *http.Request) {
-		u, _ := url.Parse(backend.URL)
+		u, _ := url.Parse("http://example.com/")
 		r.URL = u
 		r.Host = u.Host
 	}
@@ -117,20 +125,21 @@ func TestWithErrorHandler(t *testing.T) {
 }
 
 func TestServeHTTPWithDefaultDirector(t *testing.T) {
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/test" {
-			t.Errorf("expected path /test, got %s", r.URL.Path)
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/test" {
+			t.Errorf("expected path /test, got %s", req.URL.Path)
 		}
-		w.Write([]byte("ok"))
-	}))
-	defer backend.Close()
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewBufferString("ok")),
+			Header:     make(http.Header),
+		}, nil
+	})
 
-	backendURL, _ := url.Parse(backend.URL)
-
-	req := httptest.NewRequest("GET", backendURL.String()+"/test", nil)
+	req := httptest.NewRequest("GET", "http://example.com/test", nil)
 	w := httptest.NewRecorder()
 
-	rp := NewHTTPReverseProxy()
+	rp := NewHTTPReverseProxy(WithTransport(rt))
 	rp.ServeHTTP(w, req)
 
 	if w.Body.String() != "ok" {
@@ -139,18 +148,20 @@ func TestServeHTTPWithDefaultDirector(t *testing.T) {
 }
 
 func TestServeHTTPWithCustomDirector(t *testing.T) {
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("custom-director"))
-	}))
-	defer backend.Close()
-
-	backendURL, _ := url.Parse(backend.URL)
+	backendURL, _ := url.Parse("http://example.com")
 	customDirector := func(r *http.Request) {
 		r.URL = backendURL
 		r.Host = backendURL.Host
 	}
 
-	rp := NewHTTPReverseProxy(WithRequestModifier(customDirector))
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewBufferString("custom-director")),
+			Header:     make(http.Header),
+		}, nil
+	})
+	rp := NewHTTPReverseProxy(WithRequestModifier(customDirector), WithTransport(rt))
 	req := httptest.NewRequest("GET", "http://original/", nil)
 	w := httptest.NewRecorder()
 	rp.ServeHTTP(w, req)
@@ -168,17 +179,19 @@ func TestNewHTTPReverseProxyWithNoOpts(t *testing.T) {
 }
 
 func TestServeHTTPWithDirectorAlreadySet(t *testing.T) {
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("director-already-set"))
-	}))
-	defer backend.Close()
-
-	backendURL, _ := url.Parse(backend.URL)
+	backendURL, _ := url.Parse("http://example.com")
 	rp := NewHTTPReverseProxy()
 	rp.rp.Director = func(r *http.Request) {
 		r.URL = backendURL
 		r.Host = backendURL.Host
 	}
+	rp.rp.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewBufferString("director-already-set")),
+			Header:     make(http.Header),
+		}, nil
+	})
 
 	req := httptest.NewRequest("GET", "http://example/", nil)
 	w := httptest.NewRecorder()

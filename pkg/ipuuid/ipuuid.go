@@ -18,5 +18,9 @@ func IPToUUID(ip net.IP) (uuid.UUID, error) {
 }
 
 func UUIDToIP(u uuid.UUID) net.IP {
-	return net.IP(u[:])
+	ip := net.IP(u[:])
+	if v4 := ip.To4(); v4 != nil {
+		return v4
+	}
+	return ip.To16()
 }

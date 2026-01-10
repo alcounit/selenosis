@@ -42,7 +42,7 @@ Selenosis exposes Selenium-compatible endpoints on both `/` and `/wd/hub`.
 
 ## Example: create session
 ```bash
-curl -sS -X POST http://{selenosis_host}:{selenosis_port}/wd/hub/session \
+curl -sS -X POST http://{selenosis_host:port}/wd/hub/session \
   -H 'Content-Type: application/json' \
   -d '{
     "capabilities": {
@@ -58,7 +58,7 @@ The response is proxied from the browser and contains the `sessionId` used for s
 
 ## Example: proxy a command
 ```bash
-curl -sS -X GET http://{selenosis_host}:{selenosis_port}/wd/hub/session/<sessionId>/url
+curl -sS -X GET http://{selenosis_host:port}/wd/hub/session/<sessionId>/url
 ```
 
 ## Networking and headers
@@ -87,4 +87,61 @@ DOCKER_REGISTRY is expected to be provided externally, which allows the same Mak
 
 ## Deployment
 
-To be added....
+Minimal configuration
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: selenosis
+  namespace: default
+```
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: selenosis
+  labels:
+    role: selenosis
+spec:
+  type: NodePort
+  selector:
+    role: selenosis
+  ports:
+  - name: http
+    port: 4444   
+    targetPort: 4444
+```
+
+``` yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selenosis
+  labels:
+    role: selenosis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      role: selenosis
+  template:
+    metadata:
+      labels:
+        role: selenosis
+    spec:
+      serviceAccountName: selenosis
+      containers:
+      - name: service
+        image: alcounit/selenosis:v2.0.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 4444
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+```

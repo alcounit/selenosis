@@ -5,7 +5,6 @@ import (
 )
 
 func TestUpdateSessionId(t *testing.T) {
-	// Обновление из вложенного value/sessionId
 	p := Payload{
 		"value": map[string]any{
 			"sessionId": "old",
@@ -19,7 +18,6 @@ func TestUpdateSessionId(t *testing.T) {
 		t.Errorf("expected sessionId updated, got %v", p["value"].(map[string]any)["sessionId"])
 	}
 
-	// Нет value или sessionId -> false
 	p2 := Payload{}
 	if p2.UpdateSessionId("anything") {
 		t.Error("expected false when sessionId not found")
@@ -27,14 +25,12 @@ func TestUpdateSessionId(t *testing.T) {
 }
 
 func TestGetSessionId(t *testing.T) {
-	// sessionId на верхнем уровне
 	p := Payload{"sessionId": "topLevel"}
 	id, ok := p.GetSessionId()
 	if id != "topLevel" || !ok {
 		t.Errorf("expected topLevel/true, got %s/%v", id, ok)
 	}
 
-	// sessionId во вложенном value
 	p2 := Payload{
 		"value": map[string]any{
 			"sessionId": "nested",
@@ -45,10 +41,67 @@ func TestGetSessionId(t *testing.T) {
 		t.Errorf("expected nested/true, got %s/%v", id2, ok2)
 	}
 
-	// sessionId отсутствует
 	p3 := Payload{}
 	id3, ok3 := p3.GetSessionId()
 	if id3 != "" || ok3 {
 		t.Errorf("expected empty/false, got %s/%v", id3, ok3)
 	}
+}
+
+func TestUpdateBiDiURL(t *testing.T) {
+	p := Payload{
+		"value": map[string]any{
+			"capabilities": map[string]any{
+				"webSocketUrl": "ws://oldhost/session/oldid",
+			},
+		},
+	}
+
+	UpdateBiDiURL("wss", "newhost", "oldid", "newid", p)
+	caps := p["value"].(map[string]any)["capabilities"].(map[string]any)
+	got := caps["webSocketUrl"].(string)
+	if got != "wss://newhost/session/newid" {
+		t.Fatalf("unexpected webSocketUrl: %s", got)
+	}
+
+	p2 := Payload{}
+	UpdateBiDiURL("wss", "newhost", "oldid", "newid", p2)
+}
+
+func TestUpdateChromeCDPURL(t *testing.T) {
+	p := Payload{
+		"value": map[string]any{
+			"capabilities": map[string]any{
+				"se:cdp": "ws://oldhost/devtools/oldid",
+			},
+		},
+	}
+
+	UpdateChromeCDPURL("wss", "newhost", "oldid", "newid", p)
+	caps := p["value"].(map[string]any)["capabilities"].(map[string]any)
+	got := caps["se:cdp"].(string)
+	if got != "wss://newhost/devtools/newid" {
+		t.Fatalf("unexpected se:cdp: %s", got)
+	}
+
+	p2 := Payload{}
+	UpdateChromeCDPURL("wss", "newhost", "oldid", "newid", p2)
+}
+
+func TestUpdateBiDiURLGuards(t *testing.T) {
+	UpdateBiDiURL("wss", "host", "old", "new", Payload{"value": "not-map"})
+	UpdateBiDiURL("wss", "host", "old", "new", Payload{"value": map[string]any{"capabilities": "not-map"}})
+	UpdateBiDiURL("wss", "host", "old", "new", Payload{"value": map[string]any{"capabilities": map[string]any{}}})
+	UpdateBiDiURL("wss", "host", "old", "new", Payload{"value": map[string]any{"capabilities": map[string]any{"webSocketUrl": 123}}})
+	UpdateBiDiURL("wss", "host", "old", "new", Payload{"value": map[string]any{"capabilities": map[string]any{"webSocketUrl": ""}}})
+	UpdateBiDiURL("wss", "host", "old", "new", Payload{"value": map[string]any{"capabilities": map[string]any{"webSocketUrl": "http://[::1"}}})
+}
+
+func TestUpdateChromeCDPURLGuards(t *testing.T) {
+	UpdateChromeCDPURL("wss", "host", "old", "new", Payload{"value": "not-map"})
+	UpdateChromeCDPURL("wss", "host", "old", "new", Payload{"value": map[string]any{"capabilities": "not-map"}})
+	UpdateChromeCDPURL("wss", "host", "old", "new", Payload{"value": map[string]any{"capabilities": map[string]any{}}})
+	UpdateChromeCDPURL("wss", "host", "old", "new", Payload{"value": map[string]any{"capabilities": map[string]any{"se:cdp": 123}}})
+	UpdateChromeCDPURL("wss", "host", "old", "new", Payload{"value": map[string]any{"capabilities": map[string]any{"se:cdp": ""}}})
+	UpdateChromeCDPURL("wss", "host", "old", "new", Payload{"value": map[string]any{"capabilities": map[string]any{"se:cdp": "http://[::1"}}})
 }
