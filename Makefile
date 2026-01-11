@@ -1,7 +1,7 @@
 BINARY_NAME := selenosis
 DOCKER_REGISTRY ?= ${REGISTRY}
 IMAGE_NAME := $(DOCKER_REGISTRY)/$(BINARY_NAME)
-VERSION ?= v2.0.0
+VERSION ?= ${VERSION}
 PLATFORM ?= linux/amd64
 CONTAINER_TOOL ?= docker
 
@@ -26,7 +26,7 @@ docker-build: tidy fmt vet test
 		.
 
 docker-push:
-	$(CONTAINER_TOOL)  push $(IMAGE_NAME):$(VERSION)
+	$(CONTAINER_TOOL) push $(IMAGE_NAME):$(VERSION)
 
 deploy: docker-build docker-push
 
