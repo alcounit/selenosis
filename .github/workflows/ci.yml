@@ -71,7 +71,6 @@ jobs:
           REGISTRY: ${{ secrets.REGISTRY }}
           VERSION: ${{ steps.meta.outputs.version }}
           PLATFORM: linux/amd64
-          CONTAINER_TOOL: docker
         run: |
           make deploy
 

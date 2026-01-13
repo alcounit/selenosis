@@ -106,13 +106,13 @@ The build process is controlled via the following Makefile variables:
 
 Variable	Description
 - BINARY_NAME	Name of the produced binary (selenosis).
-- DOCKER_REGISTRY	Docker registry prefix (passed via environment).
+- REGISTRY	Docker registry prefix (default: localhost:5000).
 - IMAGE_NAME	Full image name (<registry>/selenosis).
-- VERSION	Image version/tag (default: v2.0.0).
+- VERSION	Image version/tag (default: develop).
 - PLATFORM	Target platform (default: linux/amd64).
 - CONTAINER_TOOL docker cmd
 
-DOCKER_REGISTRY is expected to be provided externally, which allows the same Makefile to be used locally and in CI.
+REGISTRY, VERSION is expected to be provided externally, which allows the same Makefile to be used locally and in CI.
 
 ## Deployment
 
@@ -162,7 +162,7 @@ spec:
       serviceAccountName: selenosis
       containers:
       - name: service
-        image: alcounit/selenosis:v2.0.0
+        image: alcounit/selenosis:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 4444

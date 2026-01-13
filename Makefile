@@ -1,7 +1,8 @@
 BINARY_NAME := selenosis
-DOCKER_REGISTRY ?= ${REGISTRY}
-IMAGE_NAME := $(DOCKER_REGISTRY)/$(BINARY_NAME)
-VERSION ?= ${VERSION}
+REGISTRY ?= localhost:5000
+IMAGE_NAME := $(REGISTRY)/$(BINARY_NAME)
+
+VERSION ?= develop
 PLATFORM ?= linux/amd64
 CONTAINER_TOOL ?= docker
 
@@ -20,22 +21,27 @@ test:
 	go test -race -count=1 -cover ./...
 
 docker-build: tidy fmt vet test
-	$(CONTAINER_TOOL)  build \
+	$(CONTAINER_TOOL) buildx build \
 		--platform $(PLATFORM) \
 		-t $(IMAGE_NAME):$(VERSION) \
+		--load \
 		.
 
 docker-push:
-	$(CONTAINER_TOOL) push $(IMAGE_NAME):$(VERSION)
+	$(CONTAINER_TOOL) buildx build \
+		--platform $(PLATFORM) \
+		-t $(IMAGE_NAME):$(VERSION) \
+		--push \
+		.
 
-deploy: docker-build docker-push
+deploy: docker-push
 
 clean:
 	$(CONTAINER_TOOL) rmi $(IMAGE_NAME):$(VERSION) 2>/dev/null || true
 
 show-vars:
 	@echo "BINARY_NAME: $(BINARY_NAME)"
-	@echo "DOCKER_REGISTRY: $(DOCKER_REGISTRY)"
+	@echo "REGISTRY: $(REGISTRY)"
 	@echo "IMAGE_NAME: $(IMAGE_NAME)"
 	@echo "VERSION: $(VERSION)"
 	@echo "PLATFORM: $(PLATFORM)"

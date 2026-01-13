@@ -253,7 +253,6 @@ func (h *hijackResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return h.conn, bufio.NewReadWriter(bufio.NewReader(h.conn), bufio.NewWriter(h.conn)), nil
 }
 
-
 func writeHandshakeResponse(conn net.Conn) error {
 	reader := bufio.NewReader(conn)
 	var key string
