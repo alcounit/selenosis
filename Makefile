@@ -1,30 +1,50 @@
-BINARY_NAME       := selenosis
-DOCKER_REGISTRY   := ${REGISTRY}
-IMAGE_NAME        := $(DOCKER_REGISTRY)/$(BINARY_NAME)
-VERSION           ?= v2.0.0
-PLATFORM          := linux/amd64
+BINARY_NAME := selenosis
+REGISTRY ?= localhost:5000
+IMAGE_NAME := $(REGISTRY)/$(BINARY_NAME)
 
-.PHONY: all docker-build docker-push deploy clean show-vars
+VERSION ?= develop
+EXTRA_TAGS ?=
+PLATFORM ?= linux/amd64
+CONTAINER_TOOL ?= docker
 
-all: docker-build docker-push
+.PHONY: fmt vet tidy test docker-build docker-push deploy clean show-vars
 
-docker-build:
-	docker build \
+fmt:
+	go fmt ./...
+
+vet:
+	go vet ./...
+
+tidy:
+	go mod tidy
+
+test:
+	go test -race -count=1 -cover ./...
+
+docker-build: tidy fmt vet test
+	$(CONTAINER_TOOL) buildx build \
 		--platform $(PLATFORM) \
-		--build-arg VERSION=$(VERSION) \
 		-t $(IMAGE_NAME):$(VERSION) \
+		--load \
 		.
 
 docker-push:
-	docker push $(IMAGE_NAME):$(VERSION)
+	$(CONTAINER_TOOL) buildx build \
+		--platform $(PLATFORM) \
+		-t $(IMAGE_NAME):$(VERSION) \
+		$(EXTRA_TAGS) \
+		--push \
+		.
 
-deploy: docker-build docker-push
+deploy: docker-push
 
 clean:
-	docker rmi $(IMAGE_NAME):$(VERSION) 2>/dev/null || true
+	$(CONTAINER_TOOL) rmi $(IMAGE_NAME):$(VERSION) 2>/dev/null || true
 
 show-vars:
-	@echo "BINARY_NAME:     $(BINARY_NAME)"
-	@echo "IMAGE_NAME:      $(IMAGE_NAME)"
-	@echo "VERSION:         $(VERSION)"
-	@echo "PLATFORM:        $(PLATFORM)"
+	@echo "BINARY_NAME: $(BINARY_NAME)"
+	@echo "REGISTRY: $(REGISTRY)"
+	@echo "IMAGE_NAME: $(IMAGE_NAME)"
+	@echo "VERSION: $(VERSION)"
+	@echo "PLATFORM: $(PLATFORM)"
+	@echo "CONTAINER_TOOL: $(CONTAINER_TOOL)"

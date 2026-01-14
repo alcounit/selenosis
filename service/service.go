@@ -31,6 +31,11 @@ var (
 	ErrDecodeRequestBody   = errors.New("failed to decode request body")
 	ErrCapabilityMatch     = errors.New("cannot match request capabilities")
 	ErrInternal            = errors.New("internal server error")
+
+	proxyTransport http.RoundTripper
+	newWSProxy     = func(resolver proxy.TargetResolver, opts ...proxy.WSProxyOption) wsProxy {
+		return proxy.NewWebSocketReverseProxy(resolver, opts...)
+	}
 )
 
 type Service struct {
@@ -43,6 +48,10 @@ type ServiceConfig struct {
 	SidecarPort           string
 	SessionCreateAttempts int
 	SessionCreateTimeout  time.Duration
+}
+
+type wsProxy interface {
+	ServeHTTP(http.ResponseWriter, *http.Request)
 }
 
 func NewService(client client.Client, config ServiceConfig) *Service {
@@ -183,7 +192,11 @@ waitLoop:
 		log.Info().Str("browserId", browserName).Msg("request modified")
 	}
 
-	rp := proxy.NewHTTPReverseProxy(proxy.WithRequestModifier(reqModifier))
+	opts := []proxy.HTTPReverseProxyOptions{proxy.WithRequestModifier(reqModifier)}
+	if proxyTransport != nil {
+		opts = append(opts, proxy.WithTransport(proxyTransport))
+	}
+	rp := proxy.NewHTTPReverseProxy(opts...)
 	rp.ServeHTTP(rw, req)
 
 }
@@ -223,7 +236,7 @@ func (s *Service) ProxySession(rw http.ResponseWriter, req *http.Request) {
 			Str("ip", ip.String()).
 			Msg("proxying websocketrequest to browser")
 
-		rp := proxy.NewWebSocketReverseProxy(resolver)
+		rp := newWSProxy(resolver)
 		rp.ServeHTTP(rw, req)
 		return
 	}
@@ -245,7 +258,11 @@ func (s *Service) ProxySession(rw http.ResponseWriter, req *http.Request) {
 		r.Host = req.Host
 	}
 
-	rp := proxy.NewHTTPReverseProxy(proxy.WithRequestModifier(reqModifier))
+	opts := []proxy.HTTPReverseProxyOptions{proxy.WithRequestModifier(reqModifier)}
+	if proxyTransport != nil {
+		opts = append(opts, proxy.WithTransport(proxyTransport))
+	}
+	rp := proxy.NewHTTPReverseProxy(opts...)
 	rp.ServeHTTP(rw, req)
 
 }
@@ -304,7 +321,11 @@ func (s *Service) RouteHTTP(rw http.ResponseWriter, req *http.Request) {
 		r.URL.Path = path.Clean(req.URL.Path)
 	}
 
-	rp := proxy.NewHTTPReverseProxy(proxy.WithRequestModifier(reqModifier))
+	opts := []proxy.HTTPReverseProxyOptions{proxy.WithRequestModifier(reqModifier)}
+	if proxyTransport != nil {
+		opts = append(opts, proxy.WithTransport(proxyTransport))
+	}
+	rp := proxy.NewHTTPReverseProxy(opts...)
 	rp.ServeHTTP(rw, req)
 }
 

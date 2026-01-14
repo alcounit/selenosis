@@ -7,7 +7,6 @@ import (
 )
 
 func TestErrorConstructors(t *testing.T) {
-	// общая проверка для всех конструкторов
 	rootErr := errors.New("root cause")
 
 	tests := []struct {

@@ -13,7 +13,6 @@ func TestStatusSet(t *testing.T) {
 		t.Errorf("expected ready=true, got %v", s.Value["ready"])
 	}
 
-	// Проверим ещё, что можно задать false
 	s.Set("not ready", false)
 	if s.Value["message"] != "not ready" {
 		t.Errorf("expected message 'not ready', got %v", s.Value["message"])

@@ -1,5 +1,5 @@
 # selenosis
-A stateless Selenium hub for Kubernetes that creates a browser pod per session and proxies WebDriver traffic to it.
+A stateless Selenium hub for Kubernetes that creates a browser resource per session and proxies WebDriver traffic to it.
 
 ## What it does
 - Accepts standard WebDriver requests at `/wd/hub` (and root).
@@ -8,7 +8,7 @@ A stateless Selenium hub for Kubernetes that creates a browser pod per session a
 
 ## Requirements
 - Kubernetes cluster.
-- [browser-controller](https://github.com/alcounit/browser-controller) CRDs installed (for `Browser` resources).
+- [browser-controller](https://github.com/alcounit/browser-controller) CRDs installed (for `Browser` and `BrowserConfig` resources).
 - [browser-service](https://github.com/alcounit/browser-service) running and reachable at `BROWSER_SERVICE_URL`.
 - Browser pod image includes [seleniferous](https://github.com/alcounit/seleniferous) sidecar listening on `PROXY_PORT`.
 
@@ -42,7 +42,7 @@ Selenosis exposes Selenium-compatible endpoints on both `/` and `/wd/hub`.
 
 ## Example: create session
 ```bash
-curl -sS -X POST http://{selenosis_host}:{selenosis_port}/wd/hub/session \
+curl -sS -X POST http://{selenosis_host:port}/wd/hub/session \
   -H 'Content-Type: application/json' \
   -d '{
     "capabilities": {
@@ -58,8 +58,36 @@ The response is proxied from the browser and contains the `sessionId` used for s
 
 ## Example: proxy a command
 ```bash
-curl -sS -X GET http://{selenosis_host}:{selenosis_port}/wd/hub/session/<sessionId>/url
+curl -sS -X GET http://{selenosis_host:port}/wd/hub/session/<sessionId>/url
 ```
+
+## WebDriver BiDi support
+
+Selenosis supports WebDriver BiDi by proxying WebSocket connections per session.
+
+To enable BiDi, request `webSocketUrl: true` in capabilities.
+
+```bash
+curl -X POST http://{selenosis_host:port}/wd/hub/session \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "capabilities": {
+      "alwaysMatch": {
+        "browserName": "chrome",
+        "browserVersion": "120.0"
+        "webSocketUrl": true
+      }
+    }
+  }'
+```
+
+The response will include `capabilities.webSocketUrl` for the BiDi connection.
+
+## CDP support
+
+Chromium-based browsers can expose Chrome DevTools Protocol (CDP).
+Selenosis transparently proxies CDP traffic through the `seleniferous` sidecar.
+
 
 ## Networking and headers
 If you run behind a reverse proxy or ingress, set these headers so Selenosis can build correct external URLs for the sidecar:
@@ -78,13 +106,71 @@ The build process is controlled via the following Makefile variables:
 
 Variable	Description
 - BINARY_NAME	Name of the produced binary (selenosis).
-- DOCKER_REGISTRY	Docker registry prefix (passed via environment).
+- REGISTRY	Docker registry prefix (default: localhost:5000).
 - IMAGE_NAME	Full image name (<registry>/selenosis).
-- VERSION	Image version/tag (default: v2.0.0).
+- VERSION	Image version/tag (default: develop).
 - PLATFORM	Target platform (default: linux/amd64).
+- CONTAINER_TOOL docker cmd
 
-DOCKER_REGISTRY is expected to be provided externally, which allows the same Makefile to be used locally and in CI.
+REGISTRY, VERSION is expected to be provided externally, which allows the same Makefile to be used locally and in CI.
 
 ## Deployment
 
-To be added....
+Minimal configuration
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: selenosis
+  namespace: default
+```
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: selenosis
+  labels:
+    role: selenosis
+spec:
+  type: NodePort
+  selector:
+    role: selenosis
+  ports:
+  - name: http
+    port: 4444   
+    targetPort: 4444
+```
+
+``` yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selenosis
+  labels:
+    role: selenosis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      role: selenosis
+  template:
+    metadata:
+      labels:
+        role: selenosis
+    spec:
+      serviceAccountName: selenosis
+      containers:
+      - name: service
+        image: alcounit/selenosis:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 4444
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+```

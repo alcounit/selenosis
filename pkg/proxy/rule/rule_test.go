@@ -80,12 +80,12 @@ func TestLoadRulesFromEnvSuccess(t *testing.T) {
 
 func TestLoadRulesFromEnvEmptyEnv(t *testing.T) {
 	os.Unsetenv("ROUTING_RULES")
-	_, err := LoadRulesFromEnv("ROUTING_RULES")
-	if err == nil {
-		t.Fatal("expected error for empty env var")
+	loaded, err := LoadRulesFromEnv("ROUTING_RULES")
+	if err != nil {
+		t.Fatalf("unexpected error for empty env var: %v", err)
 	}
-	if err.Error() != "ROUTING_RULES env var is empty" {
-		t.Errorf("unexpected error msg: %s", err.Error())
+	if len(loaded) != 0 {
+		t.Fatalf("expected empty rules, got %d", len(loaded))
 	}
 }
 

@@ -12,8 +12,8 @@ import (
 
 	logctx "github.com/alcounit/browser-controller/pkg/log"
 	"github.com/alcounit/browser-service/pkg/client"
-	"github.com/alcounit/selenosis/v2/internal/service"
 	"github.com/alcounit/selenosis/v2/pkg/env"
+	"github.com/alcounit/selenosis/v2/service"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -41,7 +41,7 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to create Browser client")
 	}
 
-	service := service.NewService(client, cfg)
+	svc := service.NewService(client, cfg)
 
 	router := chi.NewRouter()
 	router.Use(func(next http.Handler) http.Handler {
@@ -66,18 +66,18 @@ func main() {
 
 	selenium := chi.NewRouter()
 
-	selenium.Post("/session", service.CreateSession)
+	selenium.Post("/session", svc.CreateSession)
 	selenium.Route("/session/{sessionId}", func(r chi.Router) {
-		r.HandleFunc("/*", service.ProxySession)
+		r.HandleFunc("/*", svc.ProxySession)
 	})
-	selenium.Get("/status", service.SessionStatus)
+	selenium.Get("/status", svc.SessionStatus)
 
 	router.Mount("/", selenium)
 	router.Mount("/wd/hub", selenium)
 
 	router.Route("/selenosis/v1/sessions/{sessionId}", func(r chi.Router) {
 		r.Route("/proxy", func(r chi.Router) {
-			r.HandleFunc("/http/*", service.RouteHTTP)
+			r.HandleFunc("/http/*", svc.RouteHTTP)
 		})
 	})
 
