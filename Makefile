@@ -3,6 +3,7 @@ REGISTRY ?= localhost:5000
 IMAGE_NAME := $(REGISTRY)/$(BINARY_NAME)
 
 VERSION ?= develop
+EXTRA_TAGS ?=
 PLATFORM ?= linux/amd64
 CONTAINER_TOOL ?= docker
 
@@ -31,6 +32,7 @@ docker-push:
 	$(CONTAINER_TOOL) buildx build \
 		--platform $(PLATFORM) \
 		-t $(IMAGE_NAME):$(VERSION) \
+		$(EXTRA_TAGS) \
 		--push \
 		.
 
