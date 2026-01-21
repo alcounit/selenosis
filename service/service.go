@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -31,6 +32,8 @@ var (
 	ErrDecodeRequestBody   = errors.New("failed to decode request body")
 	ErrCapabilityMatch     = errors.New("cannot match request capabilities")
 	ErrInternal            = errors.New("internal server error")
+
+	optionsKey = "selenosis.io/options"
 
 	proxyTransport http.RoundTripper
 	newWSProxy     = func(resolver proxy.TargetResolver, opts ...proxy.WSProxyOption) wsProxy {
@@ -100,6 +103,24 @@ func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
 			BrowserName:    processed.GetBrowserName(),
 			BrowserVersion: processed.GetBrowserVersion(),
 		},
+	}
+
+	selenosisOpts := processed.GetSelenosisOptions()
+	if selenosisOpts != nil {
+		template.ObjectMeta.Annotations, err = setSelenosisOptions(template.ObjectMeta.Annotations, selenosisOpts)
+		if err != nil {
+			log.Err(err).Msg("failed to set selenosis options annotation")
+			writeErrorResponse(rw, http.StatusInternalServerError, selenium.Error("failed to set selenosis options annotation", err))
+			return
+		}
+		caps.RemoveSelenosisOptions()
+	}
+
+	newBody, err := json.Marshal(caps)
+	if err != nil {
+		log.Err(err).Msg("failed to encode request body")
+		writeErrorResponse(rw, http.StatusInternalServerError, selenium.Error("failed to encode request body", err))
+		return
 	}
 
 	log = log.With().
@@ -186,8 +207,8 @@ waitLoop:
 		}
 		r.Method = req.Method
 		r.Host = r.URL.Host
-		r.Body = io.NopCloser(bytes.NewReader(body))
-		r.ContentLength = int64(len(body))
+		r.Body = io.NopCloser(bytes.NewReader(newBody))
+		r.ContentLength = int64(len(newBody))
 
 		log.Info().Str("browserId", browserName).Msg("request modified")
 	}
@@ -327,6 +348,23 @@ func (s *Service) RouteHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 	rp := proxy.NewHTTPReverseProxy(opts...)
 	rp.ServeHTTP(rw, req)
+}
+
+func setSelenosisOptions(ann map[string]string, opts map[string]any) (map[string]string, error) {
+	if len(opts) == 0 {
+		return ann, nil
+	}
+
+	b, err := json.Marshal(opts)
+	if err != nil {
+		return ann, fmt.Errorf("marshal selenosis options: %w", err)
+	}
+
+	if ann == nil {
+		ann = map[string]string{}
+	}
+	ann[optionsKey] = string(b)
+	return ann, nil
 }
 
 func writeErrorResponse(rw http.ResponseWriter, status int, err *selenium.SeleniumError) {

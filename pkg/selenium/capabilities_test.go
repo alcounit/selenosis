@@ -41,6 +41,9 @@ func TestProcessCapabilitiesW3CAlwaysMatchFirstMatch(t *testing.T) {
 			alwaysMatch: map[string]any{
 				browserName:    "firefox",
 				browserVersion: "102",
+				selenosisOptions: map[string]any{
+					"labels": map[string]any{"k": "v"},
+				},
 			},
 			firstMatch: []any{
 				map[string]any{
@@ -55,6 +58,9 @@ func TestProcessCapabilitiesW3CAlwaysMatchFirstMatch(t *testing.T) {
 	}
 	if result[browserName] != "firefox" || result[browserVersion] != "override" {
 		t.Errorf("merge failed: %+v", result)
+	}
+	if opts, ok := result[selenosisOptions].(map[string]any); !ok || opts["labels"] == nil {
+		t.Errorf("expected selenosis options to be preserved: %+v", result)
 	}
 }
 
@@ -149,7 +155,7 @@ func TestRemoveCapabilityAllBranches(t *testing.T) {
 	c.RemoveCapability("baz")
 	c.RemoveCapability("alpha")
 	c.RemoveCapability("gamma")
-	if _, ok := c["foo"].(map[string]any)["foo"]; ok {
+	if _, ok := c["foo"]; ok {
 		t.Error("foo not removed")
 	}
 	if _, ok := c[desiredCapabilities].(map[string]any)["baz"]; ok {
@@ -162,6 +168,26 @@ func TestRemoveCapabilityAllBranches(t *testing.T) {
 	fm := c[capabilities].(map[string]any)[firstMatch].([]any)[0].(map[string]any)
 	if _, ok := fm["gamma"]; ok {
 		t.Error("gamma not removed")
+	}
+}
+
+func TestGetSelenosisOptions(t *testing.T) {
+	c := Capabilities{
+		selenosisOptions: map[string]any{
+			"labels": map[string]any{"k": "v"},
+		},
+	}
+	opts := c.GetSelenosisOptions()
+	if opts == nil {
+		t.Fatal("expected options")
+	}
+	if labels, ok := opts["labels"].(map[string]any); !ok || labels["k"] != "v" {
+		t.Fatalf("unexpected options: %+v", opts)
+	}
+
+	c2 := Capabilities{selenosisOptions: "nope"}
+	if got := c2.GetSelenosisOptions(); got != nil {
+		t.Fatalf("expected nil for non-map options")
 	}
 }
 

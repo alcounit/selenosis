@@ -17,6 +17,8 @@ var (
 	deviceName          = "deviceName"
 	platformName        = "platformName"
 	platform            = "platform"
+
+	selenosisOptions = "selenosis:options"
 )
 
 type Capabilities map[string]any
@@ -79,8 +81,12 @@ func (c Capabilities) ProcessCapabilities() (Capabilities, error) {
 		} else if v, ok := merged[version].(string); ok {
 			result[browserVersion] = v
 		}
+		valid := len(result) > 0
+		if opts, ok := merged[selenosisOptions].(map[string]any); ok {
+			result[selenosisOptions] = opts
+		}
 
-		if len(result) > 0 {
+		if valid {
 			return result, nil
 		}
 	}
@@ -152,11 +158,7 @@ func (c Capabilities) GetCapability(capabilityName string) any {
 
 func (c Capabilities) RemoveCapability(capabilityName string) {
 
-	if raw, ok := c[capabilityName]; ok {
-		if dc, ok := raw.(map[string]any); ok {
-			delete(dc, capabilityName)
-		}
-	}
+	delete(c, capabilityName)
 
 	if raw, ok := c[desiredCapabilities]; ok {
 		if dc, ok := raw.(map[string]any); ok {
@@ -182,6 +184,22 @@ func (c Capabilities) RemoveCapability(capabilityName string) {
 			}
 		}
 	}
+}
+
+func (c Capabilities) GetSelenosisOptions() map[string]any {
+	raw := c.GetCapability(selenosisOptions)
+	if raw == nil {
+		return nil
+	}
+	if m, ok := raw.(map[string]any); ok {
+		return m
+	}
+
+	return nil
+}
+
+func (c Capabilities) RemoveSelenosisOptions() {
+	c.RemoveCapability(selenosisOptions)
 }
 
 func (c Capabilities) DeepCopy() Capabilities {
