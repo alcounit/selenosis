@@ -160,7 +160,7 @@ selenosis:options = {
           },
           "seleniferous": {
             "env": {
-              "SESSION_IDLE_TIMEOUT": "300"
+              "SESSION_IDLE_TIMEOUT": "3m"
             }
           }
         }
