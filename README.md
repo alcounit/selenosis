@@ -102,7 +102,6 @@ Selenosis also adds `Selenosis-Request-ID` to outgoing requests for tracing.
 
 The options are attached to the `Browser` resource (via annotations) and applied by the controller at Pod creation time.
 
----
 
 ## Supported scope
 
