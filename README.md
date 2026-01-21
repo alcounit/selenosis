@@ -23,6 +23,7 @@ Selenosis is configured via environment variables:
 | `NAMESPACE` | `default` | Kubernetes namespace where `Browser` resources are created. |
 | `SESSION_CREATE_ATTEMPTS` | `5` | Reserved for retries (loaded but not currently used). |
 | `SESSION_CREATE_TIMEOUT` | `3m` | Reserved for timeouts (loaded but not currently used). |
+| `BASIC_AUTH_FILE` | | Points to a file containing a JSON list of users.  |
 
 ## Endpoints
 Selenosis exposes Selenium-compatible endpoints on both `/` and `/wd/hub`.
@@ -232,7 +233,7 @@ public class SelenosisOptionsExample {
     caps.setCapability("selenosis:options", selenosisOptions);
 
     RemoteWebDriver driver = new RemoteWebDriver(
-        new URL("http://localhost:4444/wd/hub"),
+        new URL("http://{selenosis_host:port}/wd/hub"),
         caps
     );
 
@@ -251,6 +252,71 @@ public class SelenosisOptionsExample {
 - Invalid JSON results in the Browser being marked as **Failed**.
 - Options are applied when the Pod is created.
 
+## Basic Authentication in Selenosis
+
+Selenosis supports optional HTTP Basic Authentication for protecting its public API endpoints.
+Authentication is enabled by providing a users file via a Kubernetes Secret and referencing it through environment variables.
+When Basic Auth is enabled, all incoming HTTP requests must include valid credentials.
+
+### Configuration Overview
+
+Basic Auth is disabled by default.
+
+It becomes active when the following environment variable is set:
+
+```
+BASIC_AUTH_FILE
+```
+This variable must point to a file containing a JSON list of users.
+
+```json
+[
+  { "user": "alice", "pass": "secret1" },
+  { "user": "bob",   "pass": "secret2" }
+]
+```
+- `user` — username
+- `pass` — password (plain text in this example)
+
+### Kubernetes Secret Example
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: basic-auth
+  namespace: selenosis
+type: Opaque
+stringData:
+  users.json: |
+    [
+      { "user": "alice", "pass": "secret1" },
+      { "user": "bob",   "pass": "secret2" }
+    ]
+
+```
+
+### Deployment Configuration
+
+```yaml
+env:
+  - name: BASIC_AUTH_FILE
+    value: /etc/auth/users.json
+
+volumeMounts:
+  - name: basic-auth
+    mountPath: /etc/auth
+    readOnly: true
+
+volumes:
+  - name: basic-auth
+    secret:
+      secretName: basic-auth
+```
+
+### Client Usage
+
+Clients must send credentials using `http://{username}:{password}@{selenosis_host:port}/wd/hub`
 
 ## Build and image workflow
 
