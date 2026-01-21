@@ -3,15 +3,16 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	logctx "github.com/alcounit/browser-controller/pkg/log"
 	"github.com/alcounit/browser-service/pkg/client"
+	"github.com/alcounit/selenosis/v2/pkg/auth"
 	"github.com/alcounit/selenosis/v2/pkg/env"
 	"github.com/alcounit/selenosis/v2/service"
 	"github.com/go-chi/chi/v5"
@@ -25,7 +26,7 @@ func main() {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	log := zerolog.New(os.Stdout).With().Timestamp().Logger()
 
-	cfg, listenAddr, apiURL, err := loadConfig()
+	cfg, authStore, listenAddr, apiURL, err := loadConfig()
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to load configuration")
 	}
@@ -62,6 +63,22 @@ func main() {
 			next.ServeHTTP(rw, req.WithContext(ctx))
 		}
 		return http.HandlerFunc(fn)
+	})
+
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			if authStore != nil {
+				user, pass, ok := req.BasicAuth()
+				if !ok || !authStore.Verify(user, pass) {
+					log.Error().Msg("request authentication failed")
+					http.Error(rw, "authentication failed", http.StatusUnauthorized)
+					return
+				}
+				req.URL.User = nil
+			}
+
+			next.ServeHTTP(rw, req)
+		})
 	})
 
 	selenium := chi.NewRouter()
@@ -107,8 +124,12 @@ func main() {
 	}
 }
 
-func loadConfig() (service.ServiceConfig, string, string, error) {
-	var cfg service.ServiceConfig
+func loadConfig() (service.ServiceConfig, *auth.AuthStore, string, string, error) {
+	var (
+		cfg       service.ServiceConfig
+		authStore *auth.AuthStore
+		err       error
+	)
 
 	addr := env.GetEnvOrDefault("LISTEN_ADDR", ":4444")
 	apiURL := env.GetEnvOrDefault("BROWSER_SERVICE_URL", "http://browser-service:8080")
@@ -118,25 +139,25 @@ func loadConfig() (service.ServiceConfig, string, string, error) {
 	cfg.SessionCreateTimeout = env.GetEnvDurationOrDefault("SESSION_CREATE_TIMEOUT", 3*time.Minute)
 	cfg.Namespace = env.GetEnvOrDefault("NAMESPACE", "default")
 
+	basicAuthFilePath := env.GetEnvOrDefault("BASIC_AUTH_FILE", "")
+	if basicAuthFilePath != "" {
+		if authStore, err = auth.LoadFromJSONFile(basicAuthFilePath); err != nil {
+			return cfg, authStore, "", "", fmt.Errorf("BASIC_AUTH_FILE file read error: %v", err)
+		}
+	}
+
 	if addr == "" {
-		return cfg, "", "", errors.New("LISTEN_ADDR must be provided")
+		return cfg, authStore, "", "", errors.New("LISTEN_ADDR must be provided")
 	}
 	if cfg.SidecarPort == "" {
-		return cfg, "", "", errors.New("PROXY_PORT must be provided")
+		return cfg, authStore, "", "", errors.New("PROXY_PORT must be provided")
 	}
 	if apiURL == "" {
-		return cfg, "", "", errors.New("BROWSER_SERVICE_URL must be provided")
+		return cfg, authStore, "", "", errors.New("BROWSER_SERVICE_URL must be provided")
 	}
 	if cfg.Namespace == "" {
-		return cfg, "", "", errors.New("NAMESPACE must be provided")
+		return cfg, authStore, "", "", errors.New("NAMESPACE must be provided")
 	}
 
-	return cfg, addr, apiURL, nil
-}
-
-func normalizePath(p string) string {
-	if strings.HasPrefix(p, "/wd/hub") {
-		return strings.TrimPrefix(p, "/wd/hub")
-	}
-	return p
+	return cfg, authStore, addr, apiURL, err
 }

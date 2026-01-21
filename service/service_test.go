@@ -223,6 +223,41 @@ func TestCreateSessionSuccess(t *testing.T) {
 	})
 }
 
+func TestCreateSessionSelenosisOptionsAnnotation(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{Browser: nil}
+	stream.events <- &event.BrowserEvent{
+		Browser: &browserv1.Browser{
+			Status: browserv1.BrowserStatus{
+				Phase: "Running",
+				PodIP: "127.0.0.1",
+			},
+		},
+	}
+
+	fc := &captureClient{fakeClient: fakeClient{stream: stream}}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444"})
+
+	withProxyTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"value":{"sessionId":"orig"}}`), nil
+	}), func() {
+		req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBodyWithOptions()), nil)
+		rw := httptest.NewRecorder()
+
+		svc.CreateSession(rw, req)
+
+		if rw.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", rw.Code)
+		}
+		if fc.created == nil {
+			t.Fatal("expected browser to be created")
+		}
+		if got := fc.created.ObjectMeta.Annotations[optionsKey]; got == "" {
+			t.Fatalf("expected %s annotation to be set", optionsKey)
+		}
+	})
+}
+
 func TestProxySessionMissingId(t *testing.T) {
 	svc := NewService(&fakeClient{}, ServiceConfig{})
 	req := newRequestWithParams(http.MethodGet, "/wd/hub/session", nil, nil)
@@ -476,6 +511,16 @@ func (f *fakeClient) Events(ctx context.Context, namespace string) (client.Brows
 	return newFakeStream(), nil
 }
 
+type captureClient struct {
+	fakeClient
+	created *browserv1.Browser
+}
+
+func (c *captureClient) CreateBrowser(ctx context.Context, namespace string, browser *browserv1.Browser) (*browserv1.Browser, error) {
+	c.created = browser
+	return c.fakeClient.CreateBrowser(ctx, namespace, browser)
+}
+
 type fakeStream struct {
 	events    chan *event.BrowserEvent
 	errs      chan error
@@ -515,6 +560,22 @@ func validCapsBody() string {
 	return string(raw)
 }
 
+func validCapsBodyWithOptions() string {
+	payload := map[string]any{
+		"desiredCapabilities": map[string]any{
+			"browserName":    "chrome",
+			"browserVersion": "120",
+			"selenosis:options": map[string]any{
+				"labels": map[string]any{
+					"env": "test",
+				},
+			},
+		},
+	}
+	raw, _ := json.Marshal(payload)
+	return string(raw)
+}
+
 type errorReader struct{}
 
 func (errorReader) Read(p []byte) (int, error) {
@@ -523,6 +584,33 @@ func (errorReader) Read(p []byte) (int, error) {
 
 func (errorReader) Close() error {
 	return nil
+}
+
+func TestSetSelenosisOptions(t *testing.T) {
+	ann := map[string]string{"k": "v"}
+	opts := map[string]any{"a": "b"}
+	out, err := setSelenosisOptions(ann, opts)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if out[optionsKey] == "" {
+		t.Fatalf("expected %s to be set", optionsKey)
+	}
+
+	out, err = setSelenosisOptions(nil, map[string]any{})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if out != nil && out[optionsKey] != "" {
+		t.Fatalf("expected no options annotation for empty opts")
+	}
+}
+
+func TestSetSelenosisOptionsMarshalError(t *testing.T) {
+	_, err := setSelenosisOptions(nil, map[string]any{"bad": func() {}})
+	if err == nil {
+		t.Fatalf("expected error")
+	}
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
