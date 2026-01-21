@@ -104,7 +104,7 @@ The options are attached to the `Browser` resource (via annotations) and applied
 
 ---
 
-## Supported scope (current)
+## Supported scope
 
 ### Global level
 
@@ -116,7 +116,7 @@ The options are attached to the `Browser` resource (via annotations) and applied
 
 The controller does not rely on hard-coded container names. It iterates over the Pod containers and applies overrides only when names match.
 
----
+
 
 ## JSON Schema (conceptual)
 
@@ -137,47 +137,17 @@ selenosis:options = {
 - `containers` is optional.
 - Each section is applied independently.
 
----
+
 
 ## Example Payloads
 
-### 1) Only global labels
 
 ```json
 {
   "capabilities": {
     "alwaysMatch": {
       "browserName": "chrome",
-      "browserVersion": "139.0",
-      "selenosis:options": {
-        "labels": {
-          "project": "payments",
-          "run-id": "e2e-123"
-        }
-      }
-    }
-  }
-}
-```
-
-**Result**
-
-The Browser Pod will be created with Kubernetes labels:
-
-```
-project=payments
-run-id=e2e-123
-```
-
----
-
-### 2) Labels + per-container environment variables
-
-```json
-{
-  "capabilities": {
-    "alwaysMatch": {
-      "browserName": "chrome",
+      "version": "139.0",
       "selenosis:options": {
         "labels": {
           "team": "qa"
@@ -185,8 +155,7 @@ run-id=e2e-123
         "containers": {
           "browser": {
             "env": {
-              "LOG_LEVEL": "debug",
-              "FEATURE_FLAGS": "{\"bidi\":true}"
+              "LOG_LEVEL": "debug"
             }
           },
           "seleniferous": {
@@ -213,18 +182,15 @@ Container **browser** receives:
 
 ```
 LOG_LEVEL=debug
-FEATURE_FLAGS={"bidi":true}
 ```
 
 Container **seleniferous** receives:
 
 ```
-IDLE_TIMEOUT=300
+SESSION_IDLE_TIMEOUT=3m
 ```
 
 If a container name does not exist in the Pod, its configuration is ignored.
-
----
 
 ## Java Example (Selenium 4)
 
@@ -280,60 +246,11 @@ public class SelenosisOptionsExample {
 }
 ```
 
----
-
-### Using `ChromeOptions`
-
-```java
-import org.openqa.selenium.chrome.ChromeOptions;
-import org.openqa.selenium.remote.RemoteWebDriver;
-
-import java.net.URL;
-import java.util.HashMap;
-import java.util.Map;
-
-public class SelenosisOptionsChromeExample {
-
-  public static void main(String[] args) throws Exception {
-
-    ChromeOptions options = new ChromeOptions();
-
-    Map<String, String> labels = Map.of(
-        "project", "payments"
-    );
-
-    Map<String, String> env = Map.of(
-        "LOG_LEVEL", "debug"
-    );
-
-    Map<String, Object> containers = Map.of(
-        "browser", Map.of("env", env)
-    );
-
-    Map<String, Object> selenosisOptions = new HashMap<>();
-    selenosisOptions.put("labels", labels);
-    selenosisOptions.put("containers", containers);
-
-    options.setCapability("selenosis:options", selenosisOptions);
-
-    RemoteWebDriver driver = new RemoteWebDriver(
-        new URL("http://localhost:4444/wd/hub"),
-        options
-    );
-
-    driver.quit();
-  }
-}
-```
-
----
-
 ## Behavioral Notes
 
 - `selenosis:options` is validated and parsed by the controller.
 - Invalid JSON results in the Browser being marked as **Failed**.
 - Options are applied when the Pod is created.
-- Changes to options after Pod creation may require Pod recreation (controller policy).
 
 
 ## Build and image workflow
