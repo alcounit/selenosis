@@ -1,8 +1,30 @@
 # selenosis
-A stateless Selenium hub for Kubernetes that creates a browser resource per session and proxies WebDriver traffic to it.
+A stateless Selenium hub for Kubernetes that creates a browser resource per session and proxies traffic to it.
+
+## Table of Contents
+
+- [What it does](#what-it-does)
+- [Requirements](#requirements)
+- [Configuration](#configuration)
+- [Endpoints](#endpoints)
+- [Request flow](#request-flow)
+- [Examples](#examples)
+  - [Create a session](#example-create-a-session)
+  - [Proxy a command](#example-proxy-a-command)
+- [WebDriver BiDi support](#webdriver-bidi-support)
+- [CDP support](#cdp-support)
+- [Networking and headers](#networking-and-headers)
+- [selenosis:options](#selenosisoptions)
+  - [Supported scope](#supported-scope)
+  - [Example payload](#example-payload)
+  - [Behavioral notes](#behavioral-notes)
+- [Playwright (experimental)](#playwright-experimental)
+- [Basic authentication](#basic-authentication)
+- [Build and image workflow](#build-and-image-workflow)
+- [Deployment](#deployment)
 
 ## What it does
-- Accepts standard WebDriver requests at `/wd/hub` (and root).
+- Selenosis exposes Selenium-compatible endpoints on both `/` and `/wd/hub`.
 - Creates a `Browser` resource via `browser-service` based on requested capabilities.
 - Waits for the browser pod to become ready, then proxies traffic to the sidecar `seleniferous` inside that pod.
 
@@ -21,8 +43,9 @@ Selenosis is configured via environment variables:
 | `BROWSER_SERVICE_URL` | `http://browser-service:8080` | `browser-service` API base URL. |
 | `PROXY_PORT` | `4445` | Sidecar port inside the browser pod. |
 | `NAMESPACE` | `default` | Kubernetes namespace where `Browser` resources are created. |
-| `SESSION_CREATE_ATTEMPTS` | `5` | Reserved for retries (loaded but not currently used). |
-| `SESSION_CREATE_TIMEOUT` | `3m` | Reserved for timeouts (loaded but not currently used). |
+| `SESSION_CREATE_ATTEMPTS` | `5` | Maximum number of attempts to create a new session before failing. |
+| `SESSION_CREATE_TIMEOUT` | `3m` | Overall timeout for a session creation request. |
+| `BROWSER_STARTUP_TIMEOUT` | `3m` | Maximum allowed time for a Browser resource to be created. |
 | `BASIC_AUTH_FILE` | | Points to a file containing a JSON list of users.  |
 
 ## Endpoints
@@ -33,15 +56,18 @@ Selenosis exposes Selenium-compatible endpoints on both `/` and `/wd/hub`.
 | `POST` | `/session` or `/wd/hub/session` | Create a new WebDriver session. |
 | `*` | `/wd/hub/session/{sessionId}/*` | Proxy all session traffic (HTTP and WebSocket). |
 | `GET` | `/status` or `/wd/hub/status` | Simple service status response. |
+| `WS` | `/playwright/{name}/{version}` | Creates and proxies WS traffic. |
 | `*` | `/selenosis/v1/sessions/{sessionId}/proxy/http/*` | Internal HTTP-only proxy used by Seleniferous. |
 
 ## Request flow
-1. Client calls `POST /wd/hub/session` with W3C capabilities.
+1. Client calls `POST /wd/hub/session` with W3C capabilities or `WS /playwright/{name}/{version}`.
 2. Selenosis creates a `Browser` resource via `browser-service`.
 3. When the browser pod is `Running`, Selenosis maps its IP to a UUID session id.
 4. All session requests are proxied to the sidecar `seleniferous` in that pod.
 
-## Example: create session
+## Examples
+
+### Example: create session
 ```bash
 curl -sS -X POST http://{selenosis_host:port}/wd/hub/session \
   -H 'Content-Type: application/json' \
@@ -57,7 +83,7 @@ curl -sS -X POST http://{selenosis_host:port}/wd/hub/session \
 
 The response is proxied from the browser and contains the `sessionId` used for subsequent requests.
 
-## Example: proxy a command
+### Example: proxy a command
 ```bash
 curl -sS -X GET http://{selenosis_host:port}/wd/hub/session/<sessionId>/url
 ```
@@ -89,6 +115,34 @@ The response will include `capabilities.webSocketUrl` for the BiDi connection.
 Chromium-based browsers can expose Chrome DevTools Protocol (CDP).
 Selenosis transparently proxies CDP traffic through the `seleniferous` sidecar.
 
+## Playwright (experimental)
+`WS /playwright/{name}/{version}`
+
+The `/playwright/{name}/{version}` endpoint is responsible for provisioning a Browser resource and proxying the current WebSocket connection to the seleniferous sidecar.
+
+The request flow is as follows:
+- The endpoint extracts the browser name and version from the URL path.
+- Query parameters are parsed and interpreted as Selenosis options, allowing dynamic configuration of the underlying Kubernetes resources (for example, labels or environment variables).
+- A new Browser custom resource is created in Kubernetes using the resolved configuration.
+- A WebSocket reverse proxy is established, and the current WebSocket connection is transparently proxied to the seleniferous sidecar.
+
+## Example: create session
+```javascript
+import { chromium } from 'playwright';
+
+const browser = await chromium.connect({
+  wsEndpoint: 'ws://http://{selenosis_host:port}/playwright/chrome/1.58.0'
+});
+
+const context = await browser.newContext();
+const page = await context.newPage();
+
+await page.goto('https://example.com');
+await page.screenshot({ path: 'example.png' });
+
+await browser.close();
+
+```
 
 ## Networking and headers
 If you run behind a reverse proxy or ingress, set these headers so Selenosis can build correct external URLs for the sidecar:
@@ -97,9 +151,9 @@ If you run behind a reverse proxy or ingress, set these headers so Selenosis can
 
 Selenosis also adds `Selenosis-Request-ID` to outgoing requests for tracing.
 
-# selenosis:options
+# selenosis options
 
-`selenosis:options` is a vendor-namespaced WebDriver capability that allows users to pass session-specific overrides to Selenosis without changing CRDs or cluster-level configuration.
+`selenosis options` is a vendor-namespaced WebDriver capability that allows users to pass session-specific overrides to Selenosis without changing CRDs or cluster-level configuration.
 
 The options are attached to the `Browser` resource (via annotations) and applied by the controller at Pod creation time.
 
@@ -131,17 +185,24 @@ selenosis:options = {
 }
 ```
 
+## Query parameters (playwright endpoint)
+
+Pod Labels:
+```
+labels.<key>=<value>
+```
+Container environment variables:
+```
+containers.<container>.env.<ENV_NAME>=<value>
+```
+
 ### Notes
 
 - `labels` are optional.
 - `containers` is optional.
 - Each section is applied independently.
 
-
-
 ## Example Payloads
-
-
 ```json
 {
   "capabilities": {
@@ -246,6 +307,26 @@ public class SelenosisOptionsExample {
 }
 ```
 
+## Playwright Example
+
+### Using `query prameters`
+```javascript
+import { chromium } from 'playwright';
+
+const browser = await chromium.connect({
+  wsEndpoint: 'ws://http://{selenosis_host:port}/playwright/chrome/1.58.0?labels.team=qa&labels.project=selenosis&containers.seleniferous.env.SESSION_IDLE_TIMEOUT=5m&containers.seleniferous.env.SESSION_CREATE_TIMEOUT=5m'
+});
+
+const context = await browser.newContext();
+const page = await context.newPage();
+
+await page.goto('https://example.com');
+await page.screenshot({ path: 'example.png' });
+
+await browser.close();
+
+```
+
 ## Behavioral Notes
 
 - `selenosis:options` is validated and parsed by the controller.
@@ -316,7 +397,7 @@ volumes:
 
 ### Client Usage
 
-Clients must send credentials using `http://{username}:{password}@{selenosis_host:port}/wd/hub`
+Clients must send credentials using `http://{username}:{password}@{selenosis_host:port}/*`
 
 ## Build and image workflow
 

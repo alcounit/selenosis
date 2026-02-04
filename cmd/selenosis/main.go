@@ -67,17 +67,20 @@ func main() {
 
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+
+			ctx := req.Context()
 			if authStore != nil {
 				user, pass, ok := req.BasicAuth()
-				if !ok || !authStore.Verify(user, pass) {
+				if !ok || !authStore.Authenticate(user, pass) {
 					log.Error().Msg("request authentication failed")
 					http.Error(rw, "authentication failed", http.StatusUnauthorized)
 					return
 				}
 				req.URL.User = nil
+				ctx = auth.WithOwner(ctx, auth.Owner{Name: user})
 			}
 
-			next.ServeHTTP(rw, req)
+			next.ServeHTTP(rw, req.WithContext(ctx))
 		})
 	})
 
@@ -91,6 +94,8 @@ func main() {
 
 	router.Mount("/", selenium)
 	router.Mount("/wd/hub", selenium)
+
+	router.Get("/playwright/{name}/{version}", svc.Playwright)
 
 	router.Route("/selenosis/v1/sessions/{sessionId}", func(r chi.Router) {
 		r.Route("/proxy", func(r chi.Router) {
@@ -137,6 +142,7 @@ func loadConfig() (service.ServiceConfig, *auth.AuthStore, string, string, error
 	cfg.SidecarPort = env.GetEnvOrDefault("PROXY_PORT", "4445")
 	cfg.SessionCreateAttempts = env.GetEnvIntOrDefault("SESSION_CREATE_ATTEMPTS", 5)
 	cfg.SessionCreateTimeout = env.GetEnvDurationOrDefault("SESSION_CREATE_TIMEOUT", 3*time.Minute)
+	cfg.BrowserStartTimeout = env.GetEnvDurationOrDefault("BROWSER_STARTUP_TIMEOUT", 3*time.Minute)
 	cfg.Namespace = env.GetEnvOrDefault("NAMESPACE", "default")
 
 	basicAuthFilePath := env.GetEnvOrDefault("BASIC_AUTH_FILE", "")

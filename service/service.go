@@ -17,6 +17,7 @@ import (
 	browserv1 "github.com/alcounit/browser-controller/apis/browser/v1"
 	logctx "github.com/alcounit/browser-controller/pkg/log"
 	"github.com/alcounit/browser-service/pkg/client"
+	"github.com/alcounit/selenosis/v2/pkg/auth"
 	"github.com/alcounit/selenosis/v2/pkg/ipuuid"
 	"github.com/alcounit/selenosis/v2/pkg/proxy"
 	"github.com/alcounit/selenosis/v2/pkg/selenium"
@@ -32,13 +33,6 @@ var (
 	ErrDecodeRequestBody   = errors.New("failed to decode request body")
 	ErrCapabilityMatch     = errors.New("cannot match request capabilities")
 	ErrInternal            = errors.New("internal server error")
-
-	optionsKey = "selenosis.io/options"
-
-	proxyTransport http.RoundTripper
-	newWSProxy     = func(resolver proxy.TargetResolver, opts ...proxy.WSProxyOption) wsProxy {
-		return proxy.NewWebSocketReverseProxy(resolver, opts...)
-	}
 )
 
 type Service struct {
@@ -51,10 +45,7 @@ type ServiceConfig struct {
 	SidecarPort           string
 	SessionCreateAttempts int
 	SessionCreateTimeout  time.Duration
-}
-
-type wsProxy interface {
-	ServeHTTP(http.ResponseWriter, *http.Request)
+	BrowserStartTimeout   time.Duration
 }
 
 func NewService(client client.Client, config ServiceConfig) *Service {
@@ -123,6 +114,8 @@ func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	setOwnerReference(template, req.Context())
+
 	log = log.With().
 		Str("browserName", template.Spec.BrowserName).
 		Str("versionVersion", template.Spec.BrowserVersion).
@@ -142,10 +135,10 @@ func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
 
 	log.Info().Str("name", browserName).Msg("waiting for browser to become ready")
 
-	ctx, cancel := context.WithCancel(req.Context())
+	ctx, cancel := context.WithTimeout(req.Context(), s.config.BrowserStartTimeout)
 	defer cancel()
 
-	stream, err := s.client.Events(ctx, s.config.Namespace)
+	stream, err := s.client.Events(ctx, s.config.Namespace, client.WithBrowserName(browserName))
 	if err != nil {
 		log.Err(err).Str("name", browserName).Msg("failed to start browser event stream")
 		writeErrorResponse(rw, http.StatusInternalServerError, selenium.Error("failed to start browser event stream", err))
@@ -213,11 +206,7 @@ waitLoop:
 		log.Info().Str("browserId", browserName).Msg("request modified")
 	}
 
-	opts := []proxy.HTTPReverseProxyOptions{proxy.WithRequestModifier(reqModifier)}
-	if proxyTransport != nil {
-		opts = append(opts, proxy.WithTransport(proxyTransport))
-	}
-	rp := proxy.NewHTTPReverseProxy(opts...)
+	rp := proxy.NewHTTPReverseProxy(proxy.WithRequestModifier(reqModifier))
 	rp.ServeHTTP(rw, req)
 
 }
@@ -257,7 +246,7 @@ func (s *Service) ProxySession(rw http.ResponseWriter, req *http.Request) {
 			Str("ip", ip.String()).
 			Msg("proxying websocketrequest to browser")
 
-		rp := newWSProxy(resolver)
+		rp := proxy.NewWebSocketReverseProxy(resolver)
 		rp.ServeHTTP(rw, req)
 		return
 	}
@@ -279,11 +268,7 @@ func (s *Service) ProxySession(rw http.ResponseWriter, req *http.Request) {
 		r.Host = req.Host
 	}
 
-	opts := []proxy.HTTPReverseProxyOptions{proxy.WithRequestModifier(reqModifier)}
-	if proxyTransport != nil {
-		opts = append(opts, proxy.WithTransport(proxyTransport))
-	}
-	rp := proxy.NewHTTPReverseProxy(opts...)
+	rp := proxy.NewHTTPReverseProxy(proxy.WithRequestModifier(reqModifier))
 	rp.ServeHTTP(rw, req)
 
 }
@@ -306,6 +291,156 @@ func (s *Service) SessionStatus(rw http.ResponseWriter, req *http.Request) {
 
 	rw.Write(raw)
 	rw.Header().Set("Content-Type", "application/json")
+}
+
+func (s *Service) Playwright(rw http.ResponseWriter, req *http.Request) {
+	log := logctx.FromContext(req.Context())
+
+	log.Info().
+		Msg("proxying playwright request")
+
+	name := chi.URLParam(req, "name")
+	version := chi.URLParam(req, "version")
+	if version == "" || name == "" {
+		log.Error().Msgf("missing required url param: name=%s version=%s", name, version)
+		http.Error(rw, fmt.Sprintf("missing required url param: name=%s version=%s", name, version), http.StatusNotFound)
+		return
+	}
+
+	selenosisOpts, err := parseSelenosisOptions(req.URL.Query(), defaultParseLimits())
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	template := &browserv1.Browser{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: uuid.NewString(),
+		},
+		Spec: browserv1.BrowserSpec{
+			BrowserName:    name,
+			BrowserVersion: version,
+		},
+	}
+
+	if len(selenosisOpts) > 0 {
+		template.ObjectMeta.Annotations, err = setSelenosisOptions(template.ObjectMeta.Annotations, selenosisOpts)
+		if err != nil {
+			log.Err(err).Msg("failed to set selenosis options annotation")
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	setOwnerReference(template, req.Context())
+
+	log = log.With().
+		Str("browserName", template.Spec.BrowserName).
+		Str("versionVersion", template.Spec.BrowserVersion).
+		Str("namespace", s.config.Namespace).
+		Logger()
+
+	log.Info().Msg("creating browser resource")
+
+	result, err := s.client.CreateBrowser(req.Context(), s.config.Namespace, template)
+	if err != nil {
+		log.Err(err).Msg("failed to create browser resource")
+		http.Error(rw, "failed to create browser resource", http.StatusInternalServerError)
+		return
+	}
+
+	browserName := result.GetName()
+
+	log.Info().Str("name", browserName).Msg("waiting for browser to become ready")
+
+	ctx, cancel := context.WithTimeout(req.Context(), s.config.SessionCreateTimeout)
+	defer cancel()
+
+	stream, err := s.client.Events(ctx, s.config.Namespace, client.WithBrowserName(browserName))
+	if err != nil {
+		log.Err(err).Str("name", browserName).Msg("failed to start browser event stream")
+		http.Error(rw, fmt.Sprintf("failed to start browser event stream: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer stream.Close()
+
+	var podIP string
+
+waitLoop:
+	for {
+		select {
+		case event, ok := <-stream.Events():
+			if !ok {
+				log.Error().Str("name", browserName).Msg("browser event stream closed unexpectedly")
+				http.Error(rw, "browser event stream closed unexpectedly", http.StatusInternalServerError)
+				return
+			}
+
+			if event.Browser == nil {
+				log.Warn().Str("name", browserName).Msg("received browser event with nil browser")
+				continue
+			}
+
+			switch event.Browser.Status.Phase {
+			case "Failed":
+				log.Error().Str("name", browserName).Str("statusReason", event.Browser.Status.Reason).Msg("browser failed to start")
+				http.Error(rw, "browser failed to start", http.StatusInternalServerError)
+				return
+
+			case "Running":
+				podIP = event.Browser.Status.PodIP
+				log.Info().Str("name", browserName).Msg("browser successfully started")
+				break waitLoop
+			}
+
+		case err, ok := <-stream.Errors():
+			if ok && err != nil {
+				log.Error().Str("name", browserName).Msg("browser event stream error")
+				http.Error(rw, fmt.Sprintf("browser event stream error: %v", err), http.StatusInternalServerError)
+				return
+			}
+
+		case <-ctx.Done():
+			log.Info().Str("name", browserName).Msg("context cancelled, stopping browser event stream")
+			http.Error(rw, "context cancelled, stopping browser event stream", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	ip := net.ParseIP(podIP)
+	uuid, err := ipuuid.IPToUUID(ip)
+	if err != nil {
+		log.Err(err).Str("podIP", podIP).Msg("failed to convert IP to UUID")
+		http.Error(rw, "failed to convert IP to UUID", http.StatusInternalServerError)
+		return
+	}
+
+	resolver := func(r *http.Request) (*url.URL, error) {
+		url := &url.URL{
+			Scheme: "ws",
+			Host:   net.JoinHostPort(podIP, s.config.SidecarPort),
+			Path:   "/playwright",
+		}
+
+		query := url.Query()
+		query.Add("ipuuid", uuid.String())
+
+		url.RawQuery = query.Encode()
+		return url, nil
+	}
+
+	rp := proxy.NewWebSocketReverseProxy(resolver)
+	rp.ServeHTTP(rw, req)
+}
+
+func setOwnerReference(template *browserv1.Browser, ctx context.Context) {
+	owner, ok := auth.OwnerFrom(ctx)
+	if ok {
+		if template.ObjectMeta.Labels == nil {
+			template.ObjectMeta.Labels = map[string]string{}
+		}
+		template.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey] = owner.Name
+	}
 }
 
 func (s *Service) RouteHTTP(rw http.ResponseWriter, req *http.Request) {
@@ -342,29 +477,8 @@ func (s *Service) RouteHTTP(rw http.ResponseWriter, req *http.Request) {
 		r.URL.Path = path.Clean(req.URL.Path)
 	}
 
-	opts := []proxy.HTTPReverseProxyOptions{proxy.WithRequestModifier(reqModifier)}
-	if proxyTransport != nil {
-		opts = append(opts, proxy.WithTransport(proxyTransport))
-	}
-	rp := proxy.NewHTTPReverseProxy(opts...)
+	rp := proxy.NewHTTPReverseProxy(proxy.WithRequestModifier(reqModifier))
 	rp.ServeHTTP(rw, req)
-}
-
-func setSelenosisOptions(ann map[string]string, opts map[string]any) (map[string]string, error) {
-	if len(opts) == 0 {
-		return ann, nil
-	}
-
-	b, err := json.Marshal(opts)
-	if err != nil {
-		return ann, fmt.Errorf("marshal selenosis options: %w", err)
-	}
-
-	if ann == nil {
-		ann = map[string]string{}
-	}
-	ann[optionsKey] = string(b)
-	return ann, nil
 }
 
 func writeErrorResponse(rw http.ResponseWriter, status int, err *selenium.SeleniumError) {

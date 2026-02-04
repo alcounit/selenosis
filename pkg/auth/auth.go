@@ -15,7 +15,7 @@ type AuthStore struct {
 	users map[string]string
 }
 
-func (s *AuthStore) Verify(user, pass string) bool {
+func (s *AuthStore) Authenticate(user, pass string) bool {
 	expected, exists := s.users[user]
 	return exists && pass == expected
 }

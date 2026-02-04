@@ -19,13 +19,13 @@ func writeTempFile(t *testing.T, content string) string {
 
 func TestAuthStoreVerify(t *testing.T) {
 	store := &AuthStore{users: map[string]string{"alice": "secret"}}
-	if !store.Verify("alice", "secret") {
+	if !store.Authenticate("alice", "secret") {
 		t.Fatalf("expected valid credentials")
 	}
-	if store.Verify("alice", "wrong") {
+	if store.Authenticate("alice", "wrong") {
 		t.Fatalf("expected invalid password")
 	}
-	if store.Verify("bob", "secret") {
+	if store.Authenticate("bob", "secret") {
 		t.Fatalf("expected unknown user to fail")
 	}
 }
@@ -36,7 +36,7 @@ func TestLoadFromJSONFileSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if !store.Verify("alice", "a") || !store.Verify("bob", "b") {
+	if !store.Authenticate("alice", "a") || !store.Authenticate("bob", "b") {
 		t.Fatalf("expected loaded users to verify")
 	}
 }
@@ -47,10 +47,10 @@ func TestLoadFromJSONFileSkipsEmptyUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if store.Verify("", "x") {
+	if store.Authenticate("", "x") {
 		t.Fatalf("expected empty user to be skipped")
 	}
-	if !store.Verify("ok", "p") {
+	if !store.Authenticate("ok", "p") {
 		t.Fatalf("expected valid user to be kept")
 	}
 }
