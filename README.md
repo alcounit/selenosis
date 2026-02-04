@@ -126,7 +126,7 @@ The request flow is as follows:
 - A new Browser custom resource is created in Kubernetes using the resolved configuration.
 - A WebSocket reverse proxy is established, and the current WebSocket connection is transparently proxied to the seleniferous sidecar.
 
-## Example: create session
+## Example:
 ```javascript
 import { chromium } from 'playwright';
 
