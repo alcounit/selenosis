@@ -131,7 +131,7 @@ The request flow is as follows:
 import { chromium } from 'playwright';
 
 const browser = await chromium.connect({
-  wsEndpoint: 'ws://http://{selenosis_host:port}/playwright/chrome/1.58.0'
+  wsEndpoint: 'ws://http://{selenosis_host:port}/playwright/playwright-chrome/1.58.0'
 });
 
 const context = await browser.newContext();
@@ -314,7 +314,7 @@ public class SelenosisOptionsExample {
 import { chromium } from 'playwright';
 
 const browser = await chromium.connect({
-  wsEndpoint: 'ws://http://{selenosis_host:port}/playwright/chrome/1.58.0?labels.team=qa&labels.project=selenosis&containers.seleniferous.env.SESSION_IDLE_TIMEOUT=5m&containers.seleniferous.env.SESSION_CREATE_TIMEOUT=5m'
+  wsEndpoint: 'ws://http://{selenosis_host:port}/playwright/playwright-chrome/1.58.0?labels.team=qa&labels.project=selenosis&containers.seleniferous.env.SESSION_IDLE_TIMEOUT=5m&containers.seleniferous.env.SESSION_CREATE_TIMEOUT=5m'
 });
 
 const context = await browser.newContext();
