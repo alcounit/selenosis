@@ -1,11 +1,15 @@
 package proxy
 
 import (
+	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
 
+	logctx "github.com/alcounit/browser-controller/pkg/log"
 	"github.com/gorilla/websocket"
 )
 
@@ -25,10 +29,20 @@ func WithOnClose(f func()) WSProxyOption {
 	return func(p *WSProxy) { p.onClose = f }
 }
 
+func WithRetryTimeout(timeout time.Duration) WSProxyOption {
+	return func(p *WSProxy) {
+		p.dialRetryEnabled = true
+		p.timeout = timeout
+	}
+}
+
 type WSProxy struct {
 	Upgrader websocket.Upgrader
 	Dialer   websocket.Dialer
 	Resolve  TargetResolver
+
+	dialRetryEnabled bool
+	timeout          time.Duration
 
 	onConnect func()
 	onMessage func()
@@ -43,6 +57,7 @@ func NewWebSocketReverseProxy(resolver TargetResolver, opts ...WSProxyOption) *W
 				return true
 			},
 		},
+		dialRetryEnabled: false,
 		Dialer: websocket.Dialer{
 			Proxy:            http.ProxyFromEnvironment,
 			HandshakeTimeout: 10 * time.Second,
@@ -57,13 +72,23 @@ func NewWebSocketReverseProxy(resolver TargetResolver, opts ...WSProxyOption) *W
 }
 
 func (p *WSProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	log := logctx.FromContext(r.Context())
+
 	if p.Resolve == nil {
+		log.Error().Msg("no resolver configured for websocket proxy")
 		http.Error(w, "resolver not configured", http.StatusInternalServerError)
 		return
 	}
 
+	var (
+		upstreamConn *websocket.Conn
+		resp         *http.Response
+		err          error
+	)
+
 	targetURL, err := p.Resolve(r)
 	if err != nil {
+		log.Error().Err(err).Msg("resolve target URL failed")
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -73,8 +98,23 @@ func (p *WSProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	upstreamHeaders.Set("Host", targetURL.Host)
 	upstreamHeaders.Del("Origin")
 
-	upstreamConn, resp, err := p.Dialer.Dial(targetURL.String(), upstreamHeaders)
+	if p.dialRetryEnabled {
+		upstreamConn, resp, err = dialWithWait(targetURL.String(), &p.Dialer, upstreamHeaders, p.timeout)
+	} else {
+		upstreamConn, resp, err = p.Dialer.DialContext(r.Context(), targetURL.String(), upstreamHeaders)
+	}
+
 	if err != nil {
+		if resp != nil {
+			log.Error().Err(err).
+				Str("target", targetURL.String()).
+				Int("status", resp.StatusCode).
+				Msg("upstream websocket dial failed")
+		} else {
+			log.Error().Err(err).
+				Str("target", targetURL.String()).
+				Msg("upstream websocket dial failed")
+		}
 		http.Error(w, "upstream dial failed", http.StatusBadGateway)
 		return
 	}
@@ -87,7 +127,8 @@ func (p *WSProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	clientConn, err := p.Upgrader.Upgrade(w, r, upgradeHeaders)
 	if err != nil {
-		http.Error(w, "Upgrade client connection failed", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("client websocket upgrade failed")
+		http.Error(w, fmt.Sprintf("Upgrade client connection failed: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
@@ -179,7 +220,12 @@ func cloneHeaders(r *http.Request) http.Header {
 func addForwardedHeaders(h http.Header, r *http.Request) {
 	h.Set("X-Forwarded-Host", r.Host)
 	h.Set("X-Forwarded-Proto", schemeFromRequest(r))
-	h.Set("X-Forwarded-For", r.RemoteAddr)
+
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if host == "" {
+		host = r.RemoteAddr
+	}
+	h.Set("X-Forwarded-For", host)
 }
 
 func schemeFromRequest(r *http.Request) string {
@@ -206,4 +252,26 @@ func filterUpgradeResponseHeaders(src http.Header) http.Header {
 		}
 	}
 	return dst
+}
+
+func dialWithWait(target string, dialer *websocket.Dialer, headers http.Header, timeout time.Duration) (*websocket.Conn, *http.Response, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		conn, resp, err := dialer.DialContext(ctx, target, headers)
+		if err == nil {
+			return conn, resp, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, resp, fmt.Errorf("could not connect to %s after %v: %w", target, timeout, err)
+		case <-ticker.C:
+			continue
+		}
+	}
 }

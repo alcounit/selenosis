@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha1"
 	"crypto/tls"
 	"encoding/base64"
@@ -13,8 +14,11 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func TestBufferPoolNew(t *testing.T) {
@@ -65,7 +69,7 @@ func TestCloneHeadersAndForwarded(t *testing.T) {
 	if cloned.Get("X-Forwarded-Proto") != "ws" {
 		t.Fatalf("unexpected X-Forwarded-Proto: %s", cloned.Get("X-Forwarded-Proto"))
 	}
-	if cloned.Get("X-Forwarded-For") != "1.2.3.4:1234" {
+	if cloned.Get("X-Forwarded-For") != "1.2.3.4" {
 		t.Fatalf("unexpected X-Forwarded-For: %s", cloned.Get("X-Forwarded-For"))
 	}
 }
@@ -94,6 +98,85 @@ func TestFilterUpgradeResponseHeaders(t *testing.T) {
 	}
 	if dst.Get("Connection") != "" {
 		t.Fatal("expected Connection to be filtered")
+	}
+}
+
+func TestWithRetryTimeoutOption(t *testing.T) {
+	p := NewWebSocketReverseProxy(func(r *http.Request) (*url.URL, error) {
+		return url.Parse("ws://example.com")
+	}, WithRetryTimeout(250*time.Millisecond))
+
+	if !p.dialRetryEnabled {
+		t.Fatal("expected retry to be enabled")
+	}
+	if p.timeout != 250*time.Millisecond {
+		t.Fatalf("unexpected timeout: %v", p.timeout)
+	}
+}
+
+func TestAddForwardedHeadersWithoutPort(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+	req.Host = "example.com"
+	req.RemoteAddr = "10.0.0.8"
+
+	h := make(http.Header)
+	addForwardedHeaders(h, req)
+
+	if h.Get("X-Forwarded-For") != "10.0.0.8" {
+		t.Fatalf("unexpected X-Forwarded-For: %q", h.Get("X-Forwarded-For"))
+	}
+}
+
+func TestDialWithWaitSuccess(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() { _ = clientConn.Close() })
+	t.Cleanup(func() { _ = serverConn.Close() })
+
+	dialer := &websocket.Dialer{}
+	dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return clientConn, nil
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = writeHandshakeResponse(serverConn)
+	}()
+
+	conn, resp, err := dialWithWait("ws://upstream.test/ws", dialer, http.Header{}, time.Second)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if conn == nil {
+		t.Fatal("expected websocket connection")
+	}
+	if resp == nil {
+		t.Fatal("expected handshake response")
+	}
+	_ = conn.Close()
+	<-done
+}
+
+func TestDialWithWaitTimeout(t *testing.T) {
+	var attempts int32
+	dialer := &websocket.Dialer{}
+	dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		atomic.AddInt32(&attempts, 1)
+		return nil, errors.New("dial failed")
+	}
+
+	conn, _, err := dialWithWait("ws://upstream.test/ws", dialer, http.Header{}, 250*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if conn != nil {
+		t.Fatal("expected nil connection")
+	}
+	if !strings.Contains(err.Error(), "could not connect to") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if atomic.LoadInt32(&attempts) < 2 {
+		t.Fatalf("expected retries, got %d attempts", attempts)
 	}
 }
 
@@ -139,6 +222,78 @@ func TestWSProxyServeHTTPDialError(t *testing.T) {
 	if rw.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d", rw.Code)
 	}
+}
+
+func TestWSProxyServeHTTPDialErrorWithResponse(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() { _ = clientConn.Close() })
+	t.Cleanup(func() { _ = serverConn.Close() })
+
+	p := NewWebSocketReverseProxy(func(r *http.Request) (*url.URL, error) {
+		return url.Parse("ws://upstream.test/ws")
+	})
+	p.Dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return clientConn, nil
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		reader := bufio.NewReader(serverConn)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
+			if line == "\r\n" {
+				break
+			}
+		}
+		_, _ = serverConn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nbad"))
+	}()
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/ws", nil)
+	rw := httptest.NewRecorder()
+
+	p.ServeHTTP(rw, req)
+
+	if rw.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", rw.Code)
+	}
+	<-done
+}
+
+func TestWSProxyServeHTTPUpgradeErrorWithRetry(t *testing.T) {
+	upClient, upServer := net.Pipe()
+	t.Cleanup(func() { _ = upClient.Close() })
+	t.Cleanup(func() { _ = upServer.Close() })
+
+	p := NewWebSocketReverseProxy(func(r *http.Request) (*url.URL, error) {
+		return url.Parse("ws://upstream.test/ws")
+	}, WithRetryTimeout(time.Second))
+	p.Dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return upClient, nil
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = writeHandshakeResponse(upServer)
+	}()
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/ws", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	rw := httptest.NewRecorder()
+
+	p.ServeHTTP(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rw.Code)
+	}
+	<-done
 }
 
 func TestWSProxyServeHTTPSuccess(t *testing.T) {

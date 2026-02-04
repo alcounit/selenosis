@@ -173,7 +173,7 @@ func TestServeHTTPWithCustomDirector(t *testing.T) {
 
 func TestNewHTTPReverseProxyWithNoOpts(t *testing.T) {
 	rp := NewHTTPReverseProxy()
-	if rp.rp.Transport != transport {
+	if rp.rp.Transport != DefaultTransport {
 		t.Error("expected default transport")
 	}
 }

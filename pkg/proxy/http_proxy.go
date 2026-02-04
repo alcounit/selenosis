@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var transport = &http.Transport{
+var DefaultTransport = &http.Transport{
 	Proxy: http.ProxyFromEnvironment,
 	DialContext: (&net.Dialer{
 		Timeout:   30 * time.Second,
@@ -57,7 +57,7 @@ func NewHTTPReverseProxy(opts ...HTTPReverseProxyOptions) *HTTPReverseProxy {
 		rp: &httputil.ReverseProxy{
 			FlushInterval: time.Millisecond * 200,
 			BufferPool:    bufPool,
-			Transport:     transport,
+			Transport:     DefaultTransport,
 		},
 	}
 

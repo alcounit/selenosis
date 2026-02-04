@@ -4,8 +4,8 @@ go 1.25.0
 
 require (
 	dario.cat/mergo v1.0.2
-	github.com/alcounit/browser-controller v0.0.1
-	github.com/alcounit/browser-service v0.0.1
+	github.com/alcounit/browser-controller v0.0.4
+	github.com/alcounit/browser-service v0.0.4
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
@@ -16,7 +16,6 @@ require (
 require (
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
-	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
@@ -29,7 +28,7 @@ require (
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	k8s.io/api v0.33.1 // indirect
+	k8s.io/api v0.35.0 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912 // indirect
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4 // indirect

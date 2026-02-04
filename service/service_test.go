@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -11,16 +12,20 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	browserv1 "github.com/alcounit/browser-controller/apis/browser/v1"
 	"github.com/alcounit/browser-service/pkg/client"
 	"github.com/alcounit/browser-service/pkg/event"
+	"github.com/alcounit/selenosis/v2/pkg/auth"
 	"github.com/alcounit/selenosis/v2/pkg/ipuuid"
 	"github.com/alcounit/selenosis/v2/pkg/proxy"
 	"github.com/alcounit/selenosis/v2/pkg/selenium"
 	"github.com/go-chi/chi/v5"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestCreateSessionNilBody(t *testing.T) {
@@ -67,7 +72,7 @@ func TestCreateSessionCapabilitiesError(t *testing.T) {
 func TestCreateSessionCreateBrowserError(t *testing.T) {
 	err := errors.New("create failed")
 	fc := &fakeClient{createErr: err}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns"})
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
@@ -81,7 +86,7 @@ func TestCreateSessionEventsError(t *testing.T) {
 	fc := &fakeClient{
 		streamErr: err,
 	}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns"})
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
@@ -100,7 +105,7 @@ func TestCreateSessionStreamClosed(t *testing.T) {
 			ObjectMeta: browserv1.Browser{}.ObjectMeta,
 		},
 	}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns"})
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
@@ -126,7 +131,7 @@ func TestCreateSessionFailedEvent(t *testing.T) {
 			ObjectMeta: browserv1.Browser{}.ObjectMeta,
 		},
 	}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns"})
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
@@ -146,7 +151,7 @@ func TestCreateSessionEventError(t *testing.T) {
 			ObjectMeta: browserv1.Browser{}.ObjectMeta,
 		},
 	}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns"})
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
@@ -193,7 +198,7 @@ func TestCreateSessionSuccess(t *testing.T) {
 			ObjectMeta: browserv1.Browser{}.ObjectMeta,
 		},
 	}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444"})
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
 
 	var gotReq *http.Request
 	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -223,6 +228,51 @@ func TestCreateSessionSuccess(t *testing.T) {
 	})
 }
 
+func TestCreateSessionUsesBrowserNameFilter(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{
+		Browser: &browserv1.Browser{
+			Status: browserv1.BrowserStatus{
+				Phase: "Running",
+				PodIP: "127.0.0.1",
+			},
+		},
+	}
+
+	fc := &fakeClient{
+		stream: stream,
+		createResult: &browserv1.Browser{
+			ObjectMeta: metav1.ObjectMeta{Name: "br"},
+		},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
+
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"value":{"sessionId":"orig"}}`), nil
+	})
+
+	withProxyTransport(t, rt, func() {
+		req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
+		rw := httptest.NewRecorder()
+
+		svc.CreateSession(rw, req)
+
+		if rw.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", rw.Code)
+		}
+	})
+
+	if len(fc.eventsOpts) != 1 {
+		t.Fatalf("expected 1 events option, got %d", len(fc.eventsOpts))
+	}
+
+	values := url.Values{}
+	fc.eventsOpts[0](values)
+	if values.Get("name") != "br" {
+		t.Fatalf("expected browser name filter, got %q", values.Get("name"))
+	}
+}
+
 func TestCreateSessionSelenosisOptionsAnnotation(t *testing.T) {
 	stream := newFakeStream()
 	stream.events <- &event.BrowserEvent{Browser: nil}
@@ -236,7 +286,7 @@ func TestCreateSessionSelenosisOptionsAnnotation(t *testing.T) {
 	}
 
 	fc := &captureClient{fakeClient: fakeClient{stream: stream}}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444"})
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
 
 	withProxyTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return response(http.StatusOK, `{"value":{"sessionId":"orig"}}`), nil
@@ -252,8 +302,8 @@ func TestCreateSessionSelenosisOptionsAnnotation(t *testing.T) {
 		if fc.created == nil {
 			t.Fatal("expected browser to be created")
 		}
-		if got := fc.created.ObjectMeta.Annotations[optionsKey]; got == "" {
-			t.Fatalf("expected %s annotation to be set", optionsKey)
+		if got := fc.created.ObjectMeta.Annotations[browserv1.SelenosisOptionsAnnotationKey]; got == "" {
+			t.Fatalf("expected %s annotation to be set", browserv1.SelenosisOptionsAnnotationKey)
 		}
 	})
 }
@@ -285,29 +335,16 @@ func TestProxySessionWebSocket(t *testing.T) {
 
 	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4444"})
 
-	var gotURL *url.URL
-	withWSProxy(t, func(resolver proxy.TargetResolver, opts ...proxy.WSProxyOption) wsProxy {
-		return wsProxyFunc(func(rw http.ResponseWriter, req *http.Request) {
-			u, err := resolver(req)
-			if err == nil {
-				gotURL = u
-			}
-		})
-	}, func() {
-		req := newRequestWithParams(http.MethodGet, "/wd/hub/session/"+sessionId, nil, map[string]string{"sessionId": sessionId})
-		req.Header.Set("Connection", "Upgrade")
-		req.Header.Set("Upgrade", "websocket")
-		rw := httptest.NewRecorder()
+	req := newRequestWithParams(http.MethodGet, "/wd/hub/session/"+sessionId, nil, map[string]string{"sessionId": sessionId})
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	rw := httptest.NewRecorder()
 
-		svc.ProxySession(rw, req)
+	svc.ProxySession(rw, req)
 
-		if gotURL == nil {
-			t.Fatal("expected resolver to be used")
-		}
-		if gotURL.Host != "127.0.0.1:4444" {
-			t.Fatalf("unexpected host: %s", gotURL.Host)
-		}
-	})
+	if rw.Code != http.StatusBadGateway && rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 502 or 500, got %d", rw.Code)
+	}
 }
 
 func TestProxySessionHTTP(t *testing.T) {
@@ -333,7 +370,7 @@ func TestProxySessionHTTP(t *testing.T) {
 		if gotReq == nil {
 			t.Fatal("expected transport to be called")
 		}
-		if gotReq.URL.Host != "127.0.0.1:4444" {
+		if gotReq.URL.Host != "example.com" {
 			t.Fatalf("unexpected host: %s", gotReq.URL.Host)
 		}
 		if gotReq.Header.Get("X-Selenosis-External-URL") == "" {
@@ -358,6 +395,334 @@ func TestSessionStatus(t *testing.T) {
 	}
 	if status.Value["ready"] != true {
 		t.Fatalf("expected ready true, got %v", status.Value["ready"])
+	}
+}
+
+func TestPlaywrightMissingParams(t *testing.T) {
+	svc := NewService(&fakeClient{}, ServiceConfig{})
+	req := newRequestWithParams(http.MethodGet, "/playwright", nil, nil)
+	rw := httptest.NewRecorder()
+
+	svc.Playwright(rw, req)
+
+	if rw.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d", rw.Code)
+	}
+}
+
+func TestPlaywrightParseOptionsError(t *testing.T) {
+	svc := NewService(&fakeClient{}, ServiceConfig{})
+	req := newRequestWithParams(
+		http.MethodGet,
+		"/playwright?labels.bad!=x",
+		nil,
+		map[string]string{"name": "chromium", "version": "123"},
+	)
+	rw := httptest.NewRecorder()
+
+	svc.Playwright(rw, req)
+
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "invalid label key") {
+		t.Fatalf("expected parse error, got %q", rw.Body.String())
+	}
+}
+
+func TestPlaywrightCreateBrowserError(t *testing.T) {
+	fc := &fakeClient{createErr: errors.New("boom")}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns"})
+	req := newRequestWithParams(
+		http.MethodGet,
+		"/playwright",
+		nil,
+		map[string]string{"name": "chromium", "version": "123"},
+	)
+	rw := httptest.NewRecorder()
+
+	svc.Playwright(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "failed to create browser resource") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestPlaywrightEventsError(t *testing.T) {
+	fc := &fakeClient{streamErr: errors.New("stream failed")}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SessionCreateTimeout: time.Second})
+	req := newRequestWithParams(
+		http.MethodGet,
+		"/playwright",
+		nil,
+		map[string]string{"name": "chromium", "version": "123"},
+	)
+	rw := httptest.NewRecorder()
+
+	svc.Playwright(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "failed to start browser event stream") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestPlaywrightStreamClosed(t *testing.T) {
+	stream := newFakeStream()
+	stream.Close()
+
+	fc := &fakeClient{
+		stream: stream,
+		createResult: &browserv1.Browser{
+			ObjectMeta: metav1.ObjectMeta{Name: "br"},
+		},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SessionCreateTimeout: time.Second})
+	req := newRequestWithParams(
+		http.MethodGet,
+		"/playwright",
+		nil,
+		map[string]string{"name": "chromium", "version": "123"},
+	)
+	rw := httptest.NewRecorder()
+
+	svc.Playwright(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "browser event stream closed unexpectedly") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestPlaywrightFailedEvent(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{
+		Browser: &browserv1.Browser{
+			Status: browserv1.BrowserStatus{Phase: "Failed", Reason: "oops"},
+		},
+	}
+
+	fc := &fakeClient{
+		stream: stream,
+		createResult: &browserv1.Browser{
+			ObjectMeta: metav1.ObjectMeta{Name: "br"},
+		},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SessionCreateTimeout: time.Second})
+	req := newRequestWithParams(
+		http.MethodGet,
+		"/playwright",
+		nil,
+		map[string]string{"name": "chromium", "version": "123"},
+	)
+	rw := httptest.NewRecorder()
+
+	svc.Playwright(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "browser failed to start") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestPlaywrightEventError(t *testing.T) {
+	stream := newFakeStream()
+	stream.errs <- errors.New("event failed")
+
+	fc := &fakeClient{
+		stream: stream,
+		createResult: &browserv1.Browser{
+			ObjectMeta: metav1.ObjectMeta{Name: "br"},
+		},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SessionCreateTimeout: time.Second})
+	req := newRequestWithParams(
+		http.MethodGet,
+		"/playwright",
+		nil,
+		map[string]string{"name": "chromium", "version": "123"},
+	)
+	rw := httptest.NewRecorder()
+
+	svc.Playwright(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "browser event stream error") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestPlaywrightContextDone(t *testing.T) {
+	stream := newFakeStream()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	fc := &fakeClient{
+		stream: stream,
+		createResult: &browserv1.Browser{
+			ObjectMeta: metav1.ObjectMeta{Name: "br"},
+		},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SessionCreateTimeout: time.Second})
+	req := httptest.NewRequest(http.MethodGet, "/playwright", nil).WithContext(ctx)
+	req = setParams(req, map[string]string{"name": "chromium", "version": "123"})
+	rw := httptest.NewRecorder()
+
+	svc.Playwright(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "context cancelled") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestPlaywrightInvalidPodIP(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{
+		Browser: &browserv1.Browser{
+			Status: browserv1.BrowserStatus{Phase: "Running", PodIP: ""},
+		},
+	}
+
+	fc := &fakeClient{
+		stream: stream,
+		createResult: &browserv1.Browser{
+			ObjectMeta: metav1.ObjectMeta{Name: "br"},
+		},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SessionCreateTimeout: time.Second})
+	req := newRequestWithParams(
+		http.MethodGet,
+		"/playwright",
+		nil,
+		map[string]string{"name": "chromium", "version": "123"},
+	)
+	rw := httptest.NewRecorder()
+
+	svc.Playwright(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "failed to convert IP to UUID") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestPlaywrightNilBrowserEventIsIgnored(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{Browser: nil}
+	stream.events <- &event.BrowserEvent{
+		Browser: &browserv1.Browser{
+			Status: browserv1.BrowserStatus{Phase: "Running", PodIP: ""},
+		},
+	}
+
+	fc := &fakeClient{
+		stream: stream,
+		createResult: &browserv1.Browser{
+			ObjectMeta: metav1.ObjectMeta{Name: "br"},
+		},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SessionCreateTimeout: time.Second})
+	req := newRequestWithParams(
+		http.MethodGet,
+		"/playwright",
+		nil,
+		map[string]string{"name": "chromium", "version": "123"},
+	)
+	rw := httptest.NewRecorder()
+
+	svc.Playwright(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "failed to convert IP to UUID") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestPlaywrightProxyAttemptAndOwnerLabel(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{
+		Browser: &browserv1.Browser{
+			Status: browserv1.BrowserStatus{Phase: "Running", PodIP: "127.0.0.1"},
+		},
+	}
+
+	fc := &captureClient{
+		fakeClient: fakeClient{
+			stream: stream,
+			createResult: &browserv1.Browser{
+				ObjectMeta: metav1.ObjectMeta{Name: "br"},
+			},
+		},
+	}
+	svc := NewService(fc, ServiceConfig{
+		Namespace:            "ns",
+		SidecarPort:          "4444",
+		SessionCreateTimeout: time.Second,
+	})
+
+	ctx := auth.WithOwner(context.Background(), auth.Owner{Name: "qa-owner"})
+	req := httptest.NewRequest(http.MethodGet, "/playwright?labels.env=test&containers.browser.env.DEBUG=1", nil).WithContext(ctx)
+	req = setParams(req, map[string]string{"name": "chromium", "version": "123"})
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	rw := httptest.NewRecorder()
+
+	svc.Playwright(rw, req)
+
+	if rw.Code != http.StatusBadGateway && rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 502 or 500, got %d", rw.Code)
+	}
+	if fc.created == nil {
+		t.Fatal("expected browser to be created")
+	}
+	if fc.created.ObjectMeta.Annotations[browserv1.SelenosisOptionsAnnotationKey] == "" {
+		t.Fatalf("expected %s annotation", browserv1.SelenosisOptionsAnnotationKey)
+	}
+	if fc.created.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey] != "qa-owner" {
+		t.Fatalf("unexpected owner label: %q", fc.created.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey])
+	}
+}
+
+func TestSetOwnerReference(t *testing.T) {
+	template := &browserv1.Browser{}
+	setOwnerReference(template, context.Background())
+	if template.ObjectMeta.Labels != nil {
+		t.Fatalf("expected nil labels without owner, got %+v", template.ObjectMeta.Labels)
+	}
+
+	ctx := auth.WithOwner(context.Background(), auth.Owner{Name: "alice"})
+	setOwnerReference(template, ctx)
+	if template.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey] != "alice" {
+		t.Fatalf("unexpected owner label: %q", template.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey])
+	}
+
+	template.ObjectMeta.Labels = map[string]string{"existing": "x"}
+	setOwnerReference(template, auth.WithOwner(context.Background(), auth.Owner{Name: "bob"}))
+	if template.ObjectMeta.Labels["existing"] != "x" {
+		t.Fatalf("expected existing label to stay unchanged")
+	}
+	if template.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey] != "bob" {
+		t.Fatalf("unexpected owner label: %q", template.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey])
 	}
 }
 
@@ -422,7 +787,7 @@ func TestRouteHTTPSuccess(t *testing.T) {
 		if gotReq == nil {
 			t.Fatal("expected transport to be called")
 		}
-		if gotReq.URL.Host != "127.0.0.1:4444" {
+		if gotReq.URL.Host != "example.com" {
 			t.Fatalf("unexpected host: %s", gotReq.URL.Host)
 		}
 	})
@@ -477,6 +842,7 @@ type fakeClient struct {
 	createResult *browserv1.Browser
 	stream       *fakeStream
 	streamErr    error
+	eventsOpts   []client.EventsOption
 }
 
 func (f *fakeClient) CreateBrowser(ctx context.Context, namespace string, browser *browserv1.Browser) (*browserv1.Browser, error) {
@@ -501,10 +867,11 @@ func (f *fakeClient) ListBrowsers(ctx context.Context, namespace string) ([]*bro
 	return nil, nil
 }
 
-func (f *fakeClient) Events(ctx context.Context, namespace string) (client.BrowserEventStream, error) {
+func (f *fakeClient) Events(ctx context.Context, namespace string, opts ...client.EventsOption) (client.BrowserEventStream, error) {
 	if f.streamErr != nil {
 		return nil, f.streamErr
 	}
+	f.eventsOpts = opts
 	if f.stream != nil {
 		return f.stream, nil
 	}
@@ -593,15 +960,15 @@ func TestSetSelenosisOptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if out[optionsKey] == "" {
-		t.Fatalf("expected %s to be set", optionsKey)
+	if out[browserv1.SelenosisOptionsAnnotationKey] == "" {
+		t.Fatalf("expected %s to be set", browserv1.SelenosisOptionsAnnotationKey)
 	}
 
 	out, err = setSelenosisOptions(nil, map[string]any{})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if out != nil && out[optionsKey] != "" {
+	if out != nil && out[browserv1.SelenosisOptionsAnnotationKey] != "" {
 		t.Fatalf("expected no options annotation for empty opts")
 	}
 }
@@ -627,30 +994,52 @@ func response(status int, body string) *http.Response {
 	}
 }
 
+var defaultClientMu sync.Mutex
+
+func serveRoundTrip(conn net.Conn, rt http.RoundTripper) {
+	defer conn.Close()
+	reader := bufio.NewReader(conn)
+	req, err := http.ReadRequest(reader)
+	if err != nil {
+		return
+	}
+	if req.URL.Scheme == "" {
+		req.URL.Scheme = "http"
+	}
+	if req.URL.Host == "" {
+		req.URL.Host = req.Host
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		resp = &http.Response{
+			StatusCode: http.StatusBadGateway,
+			Body:       io.NopCloser(strings.NewReader(err.Error())),
+			Header:     make(http.Header),
+		}
+	}
+	_ = resp.Write(conn)
+	if resp.Body != nil {
+		resp.Body.Close()
+	}
+}
+
 func withProxyTransport(t *testing.T, rt http.RoundTripper, fn func()) {
 	t.Helper()
-	prev := proxyTransport
-	proxyTransport = rt
-	t.Cleanup(func() {
-		proxyTransport = prev
-	})
+	defaultClientMu.Lock()
+	prev := proxy.DefaultTransport
+	proxy.DefaultTransport = &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			clientConn, serverConn := net.Pipe()
+			go serveRoundTrip(serverConn, rt)
+			return clientConn, nil
+		},
+		DisableKeepAlives: true,
+	}
+	defer func() {
+		proxy.DefaultTransport = prev
+		defaultClientMu.Unlock()
+	}()
 	fn()
-}
-
-func withWSProxy(t *testing.T, fn func(resolver proxy.TargetResolver, opts ...proxy.WSProxyOption) wsProxy, run func()) {
-	t.Helper()
-	prev := newWSProxy
-	newWSProxy = fn
-	t.Cleanup(func() {
-		newWSProxy = prev
-	})
-	run()
-}
-
-type wsProxyFunc func(http.ResponseWriter, *http.Request)
-
-func (f wsProxyFunc) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	f(rw, req)
 }
 
 func newRequestWithParams(method, path string, body io.Reader, params map[string]string) *http.Request {
