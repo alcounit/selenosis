@@ -191,6 +191,31 @@ func TestGetSelenosisOptions(t *testing.T) {
 	}
 }
 
+func TestRemoveSelenosisOptions(t *testing.T) {
+	c := Capabilities{
+		selenosisOptions: map[string]any{"labels": map[string]any{"k": "v"}},
+		desiredCapabilities: map[string]any{
+			selenosisOptions: map[string]any{"labels": map[string]any{"k": "v"}},
+		},
+		capabilities: map[string]any{
+			alwaysMatch: map[string]any{
+				selenosisOptions: map[string]any{"labels": map[string]any{"k": "v"}},
+			},
+			firstMatch: []any{
+				map[string]any{
+					selenosisOptions: map[string]any{"labels": map[string]any{"k": "v"}},
+				},
+			},
+		},
+	}
+
+	c.RemoveSelenosisOptions()
+
+	if got := c.GetCapability(selenosisOptions); got != nil {
+		t.Fatalf("expected selenosis options to be removed, got %#v", got)
+	}
+}
+
 func TestDeepCopyPrimitivesAndNested(t *testing.T) {
 	orig := Capabilities{
 		"str": "val",

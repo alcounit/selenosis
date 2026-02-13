@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var DefaultTransport = &http.Transport{
+var DefaultTransport http.RoundTripper = &http.Transport{
 	Proxy: http.ProxyFromEnvironment,
 	DialContext: (&net.Dialer{
 		Timeout:   30 * time.Second,

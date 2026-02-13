@@ -18,6 +18,17 @@ func TestRuleMatch(t *testing.T) {
 	}
 }
 
+func TestRuleIsEmpty(t *testing.T) {
+	if !(Rule{}).IsEmpty() {
+		t.Fatal("expected zero-value rule to be empty")
+	}
+
+	r := Rule{PathRegex: "^/foo$", Target: "localhost:8080"}
+	if r.IsEmpty() {
+		t.Fatal("expected populated rule to be non-empty")
+	}
+}
+
 func TestSafeRewriteMatchFound(t *testing.T) {
 	r := Rule{
 		PathRegex:   "^/foo/(?P<bar>.*)$",

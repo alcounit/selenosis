@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -46,7 +45,7 @@ func TestCreateSessionReadBodyError(t *testing.T) {
 
 	svc.CreateSession(rw, req)
 
-	verifyResponseError(t, rw, http.StatusBadRequest, selenium.ErrInvalidArgument(ErrorReadRequestBody))
+	verifyResponseError(t, rw, http.StatusBadRequest, selenium.ErrInvalidArgument(ErrReadRequestBody))
 }
 
 func TestCreateSessionDecodeError(t *testing.T) {
@@ -198,7 +197,6 @@ func TestCreateSessionSuccess(t *testing.T) {
 			ObjectMeta: browserv1.Browser{}.ObjectMeta,
 		},
 	}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
 
 	var gotReq *http.Request
 	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -206,26 +204,26 @@ func TestCreateSessionSuccess(t *testing.T) {
 		return response(http.StatusOK, `{"value":{"sessionId":"orig"}}`), nil
 	})
 
-	withProxyTransport(t, rt, func() {
-		req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
-		req.Host = "example.com"
-		rw := httptest.NewRecorder()
+	setTestTransport(t, rt)
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
+	req.Host = "example.com"
+	rw := httptest.NewRecorder()
 
-		svc.CreateSession(rw, req)
+	svc.CreateSession(rw, req)
 
-		if rw.Code != http.StatusOK {
-			t.Fatalf("expected status 200, got %d", rw.Code)
-		}
-		if gotReq == nil {
-			t.Fatal("expected transport to be called")
-		}
-		if gotReq.URL.Host != "127.0.0.1:4444" {
-			t.Fatalf("unexpected host: %s", gotReq.URL.Host)
-		}
-		if gotReq.Header.Get("X-Selenosis-External-URL") == "" {
-			t.Fatal("expected external url header")
-		}
-	})
+	if rw.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rw.Code)
+	}
+	if gotReq == nil {
+		t.Fatal("expected transport to be called")
+	}
+	if gotReq.URL.Host != "127.0.0.1:4444" {
+		t.Fatalf("unexpected host: %s", gotReq.URL.Host)
+	}
+	if gotReq.Header.Get("X-Selenosis-External-URL") == "" {
+		t.Fatal("expected external url header")
+	}
 }
 
 func TestCreateSessionUsesBrowserNameFilter(t *testing.T) {
@@ -239,37 +237,32 @@ func TestCreateSessionUsesBrowserNameFilter(t *testing.T) {
 		},
 	}
 
-	fc := &fakeClient{
-		stream: stream,
-		createResult: &browserv1.Browser{
-			ObjectMeta: metav1.ObjectMeta{Name: "br"},
-		},
-	}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
-
 	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return response(http.StatusOK, `{"value":{"sessionId":"orig"}}`), nil
 	})
 
-	withProxyTransport(t, rt, func() {
-		req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
-		rw := httptest.NewRecorder()
+	setTestTransport(t, rt)
+	fc := &captureClient{fakeClient: fakeClient{stream: stream}}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
+	rw := httptest.NewRecorder()
 
-		svc.CreateSession(rw, req)
+	svc.CreateSession(rw, req)
 
-		if rw.Code != http.StatusOK {
-			t.Fatalf("expected status 200, got %d", rw.Code)
-		}
-	})
-
+	if rw.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rw.Code)
+	}
+	if fc.created == nil {
+		t.Fatal("expected browser to be created")
+	}
 	if len(fc.eventsOpts) != 1 {
 		t.Fatalf("expected 1 events option, got %d", len(fc.eventsOpts))
 	}
 
 	values := url.Values{}
 	fc.eventsOpts[0](values)
-	if values.Get("name") != "br" {
-		t.Fatalf("expected browser name filter, got %q", values.Get("name"))
+	if values.Get("name") != fc.created.GetName() {
+		t.Fatalf("expected browser name filter %q, got %q", fc.created.GetName(), values.Get("name"))
 	}
 }
 
@@ -285,27 +278,46 @@ func TestCreateSessionSelenosisOptionsAnnotation(t *testing.T) {
 		},
 	}
 
+	var proxiedBody []byte
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("failed to read proxied body: %v", err)
+		}
+		proxiedBody = body
+		return response(http.StatusOK, `{"value":{"sessionId":"orig"}}`), nil
+	})
+
+	setTestTransport(t, rt)
 	fc := &captureClient{fakeClient: fakeClient{stream: stream}}
 	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBodyWithOptions()), nil)
+	rw := httptest.NewRecorder()
 
-	withProxyTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		return response(http.StatusOK, `{"value":{"sessionId":"orig"}}`), nil
-	}), func() {
-		req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBodyWithOptions()), nil)
-		rw := httptest.NewRecorder()
+	svc.CreateSession(rw, req)
 
-		svc.CreateSession(rw, req)
+	if rw.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rw.Code)
+	}
+	if fc.created == nil {
+		t.Fatal("expected browser to be created")
+	}
+	if got := fc.created.ObjectMeta.Annotations[browserv1.SelenosisOptionsAnnotationKey]; got == "" {
+		t.Fatalf("expected %s annotation to be set", browserv1.SelenosisOptionsAnnotationKey)
+	}
 
-		if rw.Code != http.StatusOK {
-			t.Fatalf("expected status 200, got %d", rw.Code)
-		}
-		if fc.created == nil {
-			t.Fatal("expected browser to be created")
-		}
-		if got := fc.created.ObjectMeta.Annotations[browserv1.SelenosisOptionsAnnotationKey]; got == "" {
-			t.Fatalf("expected %s annotation to be set", browserv1.SelenosisOptionsAnnotationKey)
-		}
-	})
+	var forwarded map[string]any
+	if err := json.Unmarshal(proxiedBody, &forwarded); err != nil {
+		t.Fatalf("failed to decode proxied body: %v", err)
+	}
+
+	dc, ok := forwarded["desiredCapabilities"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected desiredCapabilities in proxied body, got %#v", forwarded["desiredCapabilities"])
+	}
+	if _, ok := dc["selenosis:options"]; !ok {
+		t.Fatalf("expected selenosis:options to be preserved in proxied payload")
+	}
 }
 
 func TestProxySessionMissingId(t *testing.T) {
@@ -315,7 +327,7 @@ func TestProxySessionMissingId(t *testing.T) {
 
 	svc.ProxySession(rw, req)
 
-	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.ErrUnknown(errors.ErrUnsupported))
+	verifyResponseError(t, rw, http.StatusBadRequest, selenium.ErrInvalidArgument(errors.ErrUnsupported))
 }
 
 func TestProxySessionInvalidUUID(t *testing.T) {
@@ -325,7 +337,7 @@ func TestProxySessionInvalidUUID(t *testing.T) {
 
 	svc.ProxySession(rw, req)
 
-	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.ErrUnknown(errors.ErrUnsupported))
+	verifyResponseError(t, rw, http.StatusBadRequest, selenium.ErrInvalidArgument(errors.ErrUnsupported))
 }
 
 func TestProxySessionWebSocket(t *testing.T) {
@@ -352,31 +364,32 @@ func TestProxySessionHTTP(t *testing.T) {
 	uid, _ := ipuuid.IPToUUID(ip)
 	sessionId := uid.String()
 
-	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4444"})
-
 	var gotReq *http.Request
 	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		gotReq = req
 		return response(http.StatusOK, "{}"), nil
 	})
 
-	withProxyTransport(t, rt, func() {
-		req := newRequestWithParams(http.MethodGet, "/wd/hub/session/"+sessionId+"/url", nil, map[string]string{"sessionId": sessionId})
-		req.Host = "example.com"
-		rw := httptest.NewRecorder()
+	setTestTransport(t, rt)
+	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4444"})
+	req := newRequestWithParams(http.MethodGet, "/wd/hub/session/"+sessionId+"/url", nil, map[string]string{"sessionId": sessionId})
+	req.Host = "example.com"
+	rw := httptest.NewRecorder()
 
-		svc.ProxySession(rw, req)
+	svc.ProxySession(rw, req)
 
-		if gotReq == nil {
-			t.Fatal("expected transport to be called")
-		}
-		if gotReq.URL.Host != "example.com" {
-			t.Fatalf("unexpected host: %s", gotReq.URL.Host)
-		}
-		if gotReq.Header.Get("X-Selenosis-External-URL") == "" {
-			t.Fatal("expected external url header")
-		}
-	})
+	if gotReq == nil {
+		t.Fatal("expected transport to be called")
+	}
+	if gotReq.URL.Host != "127.0.0.1:4444" {
+		t.Fatalf("unexpected target host: %s", gotReq.URL.Host)
+	}
+	if gotReq.Host != "example.com" {
+		t.Fatalf("unexpected host header: %s", gotReq.Host)
+	}
+	if gotReq.Header.Get("X-Selenosis-External-URL") == "" {
+		t.Fatal("expected external url header")
+	}
 }
 
 func TestSessionStatus(t *testing.T) {
@@ -386,8 +399,12 @@ func TestSessionStatus(t *testing.T) {
 
 	svc.SessionStatus(rw, req)
 
-	if rw.Header().Get("Content-Type") != "application/json" {
-		t.Fatalf("expected json content type, got %q", rw.Header().Get("Content-Type"))
+	resp := rw.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get("Content-Type") != "application/json" {
+		t.Fatalf("expected json content type, got %q", resp.Header.Get("Content-Type"))
 	}
 	var status selenium.Status
 	if err := json.Unmarshal(rw.Body.Bytes(), &status); err != nil {
@@ -446,6 +463,9 @@ func TestPlaywrightCreateBrowserError(t *testing.T) {
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
 	}
+	if ct := rw.Result().Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Fatalf("expected text/plain error response, got %q", ct)
+	}
 	if !strings.Contains(rw.Body.String(), "failed to create browser resource") {
 		t.Fatalf("unexpected body: %q", rw.Body.String())
 	}
@@ -453,7 +473,7 @@ func TestPlaywrightCreateBrowserError(t *testing.T) {
 
 func TestPlaywrightEventsError(t *testing.T) {
 	fc := &fakeClient{streamErr: errors.New("stream failed")}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns", SessionCreateTimeout: time.Second})
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
 	req := newRequestWithParams(
 		http.MethodGet,
 		"/playwright",
@@ -482,7 +502,7 @@ func TestPlaywrightStreamClosed(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "br"},
 		},
 	}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns", SessionCreateTimeout: time.Second})
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
 	req := newRequestWithParams(
 		http.MethodGet,
 		"/playwright",
@@ -515,7 +535,7 @@ func TestPlaywrightFailedEvent(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "br"},
 		},
 	}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns", SessionCreateTimeout: time.Second})
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
 	req := newRequestWithParams(
 		http.MethodGet,
 		"/playwright",
@@ -544,7 +564,7 @@ func TestPlaywrightEventError(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "br"},
 		},
 	}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns", SessionCreateTimeout: time.Second})
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
 	req := newRequestWithParams(
 		http.MethodGet,
 		"/playwright",
@@ -574,7 +594,7 @@ func TestPlaywrightContextDone(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "br"},
 		},
 	}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns", SessionCreateTimeout: time.Second})
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
 	req := httptest.NewRequest(http.MethodGet, "/playwright", nil).WithContext(ctx)
 	req = setParams(req, map[string]string{"name": "chromium", "version": "123"})
 	rw := httptest.NewRecorder()
@@ -603,7 +623,7 @@ func TestPlaywrightInvalidPodIP(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "br"},
 		},
 	}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns", SessionCreateTimeout: time.Second})
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
 	req := newRequestWithParams(
 		http.MethodGet,
 		"/playwright",
@@ -637,7 +657,7 @@ func TestPlaywrightNilBrowserEventIsIgnored(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "br"},
 		},
 	}
-	svc := NewService(fc, ServiceConfig{Namespace: "ns", SessionCreateTimeout: time.Second})
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
 	req := newRequestWithParams(
 		http.MethodGet,
 		"/playwright",
@@ -673,9 +693,9 @@ func TestPlaywrightProxyAttemptAndOwnerLabel(t *testing.T) {
 		},
 	}
 	svc := NewService(fc, ServiceConfig{
-		Namespace:            "ns",
-		SidecarPort:          "4444",
-		SessionCreateTimeout: time.Second,
+		Namespace:           "ns",
+		SidecarPort:         "4444",
+		BrowserStartTimeout: time.Second,
 	})
 
 	ctx := auth.WithOwner(context.Background(), auth.Owner{Name: "qa-owner"})
@@ -705,19 +725,19 @@ func TestPlaywrightProxyAttemptAndOwnerLabel(t *testing.T) {
 
 func TestSetOwnerReference(t *testing.T) {
 	template := &browserv1.Browser{}
-	setOwnerReference(template, context.Background())
+	setOwnerReference(context.Background(), template)
 	if template.ObjectMeta.Labels != nil {
 		t.Fatalf("expected nil labels without owner, got %+v", template.ObjectMeta.Labels)
 	}
 
 	ctx := auth.WithOwner(context.Background(), auth.Owner{Name: "alice"})
-	setOwnerReference(template, ctx)
+	setOwnerReference(ctx, template)
 	if template.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey] != "alice" {
 		t.Fatalf("unexpected owner label: %q", template.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey])
 	}
 
 	template.ObjectMeta.Labels = map[string]string{"existing": "x"}
-	setOwnerReference(template, auth.WithOwner(context.Background(), auth.Owner{Name: "bob"}))
+	setOwnerReference(auth.WithOwner(context.Background(), auth.Owner{Name: "bob"}), template)
 	if template.ObjectMeta.Labels["existing"] != "x" {
 		t.Fatalf("expected existing label to stay unchanged")
 	}
@@ -733,8 +753,8 @@ func TestRouteHTTPMissingSessionId(t *testing.T) {
 
 	svc.RouteHTTP(rw, req)
 
-	if rw.Code != http.StatusInternalServerError {
-		t.Fatalf("expected status 500, got %d", rw.Code)
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rw.Code)
 	}
 }
 
@@ -746,8 +766,8 @@ func TestRouteHTTPMissingRestPath(t *testing.T) {
 
 	svc.RouteHTTP(rw, req)
 
-	if rw.Code != http.StatusInternalServerError {
-		t.Fatalf("expected status 500, got %d", rw.Code)
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rw.Code)
 	}
 }
 
@@ -759,8 +779,8 @@ func TestRouteHTTPInvalidUUID(t *testing.T) {
 
 	svc.RouteHTTP(rw, req)
 
-	if rw.Code != http.StatusInternalServerError {
-		t.Fatalf("expected status 500, got %d", rw.Code)
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rw.Code)
 	}
 }
 
@@ -769,28 +789,26 @@ func TestRouteHTTPSuccess(t *testing.T) {
 	uid, _ := ipuuid.IPToUUID(ip)
 	sessionId := uid.String()
 
-	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4444"})
-
 	var gotReq *http.Request
 	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		gotReq = req
 		return response(http.StatusOK, "{}"), nil
 	})
 
-	withProxyTransport(t, rt, func() {
-		req := newRequestWithParams(http.MethodGet, "/session/"+sessionId+"/path", nil, map[string]string{"sessionId": sessionId})
-		setRoutePath(req, "/path")
-		rw := httptest.NewRecorder()
+	setTestTransport(t, rt)
+	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4444"})
+	req := newRequestWithParams(http.MethodGet, "/session/"+sessionId+"/path", nil, map[string]string{"sessionId": sessionId})
+	setRoutePath(req, "/path")
+	rw := httptest.NewRecorder()
 
-		svc.RouteHTTP(rw, req)
+	svc.RouteHTTP(rw, req)
 
-		if gotReq == nil {
-			t.Fatal("expected transport to be called")
-		}
-		if gotReq.URL.Host != "example.com" {
-			t.Fatalf("unexpected host: %s", gotReq.URL.Host)
-		}
-	})
+	if gotReq == nil {
+		t.Fatal("expected transport to be called")
+	}
+	if gotReq.URL.Host != "127.0.0.1:4444" {
+		t.Fatalf("unexpected target host: %s", gotReq.URL.Host)
+	}
 }
 
 func TestExternalBaseURL(t *testing.T) {
@@ -817,10 +835,123 @@ func TestExternalBaseURL(t *testing.T) {
 	}
 }
 
+func TestWriteCreateSessionWaitError(t *testing.T) {
+	createErr := errors.New("create failed")
+	startErr := errors.New("stream start failed")
+	streamErr := errors.New("stream failed")
+
+	tests := []struct {
+		name     string
+		waitErr  *browserError
+		expected *selenium.SeleniumError
+	}{
+		{
+			name:     "create error",
+			waitErr:  &browserError{kind: browserCreate, err: createErr},
+			expected: selenium.Error("failed to create browser", createErr),
+		},
+		{
+			name:     "events start error",
+			waitErr:  &browserError{kind: browserEventsStart, err: startErr},
+			expected: selenium.Error("failed to start browser event stream", startErr),
+		},
+		{
+			name:     "stream closed",
+			waitErr:  &browserError{kind: browserStreamClosed},
+			expected: selenium.ErrUnknown(ErrInternal),
+		},
+		{
+			name:     "browser failed",
+			waitErr:  &browserError{kind: browserFailed},
+			expected: selenium.Error("browser failed to start", ErrInternal),
+		},
+		{
+			name:     "stream error",
+			waitErr:  &browserError{kind: browserStreamError, err: streamErr},
+			expected: selenium.ErrUnknown(streamErr),
+		},
+		{
+			name:     "context done",
+			waitErr:  &browserError{kind: browserContextDone},
+			expected: selenium.ErrUnknown(ErrInternal),
+		},
+		{
+			name:     "unknown kind",
+			waitErr:  &browserError{kind: errorKind(999)},
+			expected: selenium.ErrUnknown(ErrInternal),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rw := httptest.NewRecorder()
+			writeCreateSessionWaitError(rw, tt.waitErr)
+			verifyResponseError(t, rw, http.StatusInternalServerError, tt.expected)
+		})
+	}
+}
+
+func TestWritePlaywrightWaitError(t *testing.T) {
+	tests := []struct {
+		name     string
+		waitErr  *browserError
+		expected string
+	}{
+		{
+			name:     "create error",
+			waitErr:  &browserError{kind: browserCreate, err: errors.New("create failed")},
+			expected: "failed to create browser resource",
+		},
+		{
+			name:     "events start error",
+			waitErr:  &browserError{kind: browserEventsStart, err: errors.New("stream start failed")},
+			expected: "failed to start browser event stream",
+		},
+		{
+			name:     "stream closed",
+			waitErr:  &browserError{kind: browserStreamClosed},
+			expected: "browser event stream closed unexpectedly",
+		},
+		{
+			name:     "browser failed",
+			waitErr:  &browserError{kind: browserFailed},
+			expected: "browser failed to start",
+		},
+		{
+			name:     "stream error",
+			waitErr:  &browserError{kind: browserStreamError, err: errors.New("stream failed")},
+			expected: "browser event stream error",
+		},
+		{
+			name:     "context done",
+			waitErr:  &browserError{kind: browserContextDone},
+			expected: "context cancelled, stopping browser event stream",
+		},
+		{
+			name:     "unknown kind",
+			waitErr:  &browserError{kind: errorKind(999)},
+			expected: "internal server error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rw := httptest.NewRecorder()
+			writePlaywrightWaitError(rw, tt.waitErr)
+			if rw.Code != http.StatusInternalServerError {
+				t.Fatalf("expected status 500, got %d", rw.Code)
+			}
+			if got := strings.TrimSpace(rw.Body.String()); got != tt.expected {
+				t.Fatalf("expected body %q, got %q", tt.expected, got)
+			}
+		})
+	}
+}
+
 func verifyResponseError(t *testing.T, rw *httptest.ResponseRecorder, expectedCode int, expected *selenium.SeleniumError) {
 
 	if rw.Code != expectedCode {
-		t.Fatalf("expected status 500, got %d", rw.Code)
+		t.Fatalf("expected status %d, got %d", expectedCode, rw.Code)
 	}
 
 	var actual selenium.SeleniumError
@@ -840,7 +971,7 @@ func verifyResponseError(t *testing.T, rw *httptest.ResponseRecorder, expectedCo
 type fakeClient struct {
 	createErr    error
 	createResult *browserv1.Browser
-	stream       *fakeStream
+	stream       client.BrowserEventStream
 	streamErr    error
 	eventsOpts   []client.EventsOption
 }
@@ -953,6 +1084,57 @@ func (errorReader) Close() error {
 	return nil
 }
 
+func TestCreateSessionConcurrent(t *testing.T) {
+	const goroutines = 10
+
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"value":{"sessionId":"orig"}}`), nil
+	})
+	setTestTransport(t, rt)
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+
+			stream := newFakeStream()
+			stream.events <- &event.BrowserEvent{
+				Browser: &browserv1.Browser{
+					Status: browserv1.BrowserStatus{
+						Phase: "Running",
+						PodIP: "127.0.0.1",
+					},
+				},
+			}
+
+			fc := &fakeClient{
+				stream: stream,
+				createResult: &browserv1.Browser{
+					ObjectMeta: browserv1.Browser{}.ObjectMeta,
+				},
+			}
+			svc := NewService(fc, ServiceConfig{
+				Namespace:           "ns",
+				SidecarPort:         "4444",
+				BrowserStartTimeout: time.Second,
+			})
+
+			req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
+			rw := httptest.NewRecorder()
+
+			svc.CreateSession(rw, req)
+
+			if rw.Code != http.StatusOK {
+				t.Errorf("expected status 200, got %d", rw.Code)
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
 func TestSetSelenosisOptions(t *testing.T) {
 	ann := map[string]string{"k": "v"}
 	opts := map[string]any{"a": "b"}
@@ -994,52 +1176,11 @@ func response(status int, body string) *http.Response {
 	}
 }
 
-var defaultClientMu sync.Mutex
-
-func serveRoundTrip(conn net.Conn, rt http.RoundTripper) {
-	defer conn.Close()
-	reader := bufio.NewReader(conn)
-	req, err := http.ReadRequest(reader)
-	if err != nil {
-		return
-	}
-	if req.URL.Scheme == "" {
-		req.URL.Scheme = "http"
-	}
-	if req.URL.Host == "" {
-		req.URL.Host = req.Host
-	}
-	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		resp = &http.Response{
-			StatusCode: http.StatusBadGateway,
-			Body:       io.NopCloser(strings.NewReader(err.Error())),
-			Header:     make(http.Header),
-		}
-	}
-	_ = resp.Write(conn)
-	if resp.Body != nil {
-		resp.Body.Close()
-	}
-}
-
-func withProxyTransport(t *testing.T, rt http.RoundTripper, fn func()) {
+func setTestTransport(t *testing.T, rt http.RoundTripper) {
 	t.Helper()
-	defaultClientMu.Lock()
 	prev := proxy.DefaultTransport
-	proxy.DefaultTransport = &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			clientConn, serverConn := net.Pipe()
-			go serveRoundTrip(serverConn, rt)
-			return clientConn, nil
-		},
-		DisableKeepAlives: true,
-	}
-	defer func() {
-		proxy.DefaultTransport = prev
-		defaultClientMu.Unlock()
-	}()
-	fn()
+	proxy.DefaultTransport = rt
+	t.Cleanup(func() { proxy.DefaultTransport = prev })
 }
 
 func newRequestWithParams(method, path string, body io.Reader, params map[string]string) *http.Request {
@@ -1067,4 +1208,76 @@ func setRoutePath(req *http.Request, routePath string) {
 	rctx.RoutePath = routePath
 	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
 	*req = *req.WithContext(ctx)
+}
+
+// singleChannelStream is a BrowserEventStream where only the events channel is
+// pre-closed. Close() is a no-op to avoid a double-close panic since
+// createBrowserAndWait calls defer stream.Close().
+type singleChannelStream struct {
+	events chan *event.BrowserEvent
+	errs   chan error
+}
+
+func newClosedEventsStream() *singleChannelStream {
+	events := make(chan *event.BrowserEvent)
+	close(events)
+	return &singleChannelStream{
+		events: events,
+		errs:   make(chan error),
+	}
+}
+
+func newClosedErrorsStream() *singleChannelStream {
+	errs := make(chan error)
+	close(errs)
+	return &singleChannelStream{
+		events: make(chan *event.BrowserEvent),
+		errs:   errs,
+	}
+}
+
+func (s *singleChannelStream) Events() <-chan *event.BrowserEvent { return s.events }
+func (s *singleChannelStream) Errors() <-chan error                { return s.errs }
+func (s *singleChannelStream) Close()                              {}
+
+// TestCreateSessionErrorStreamClosed covers the stream.Errors() !ok branch in
+// createBrowserAndWait. Only the errors channel is closed; events channel stays
+// open so the select is forced to pick the errors case.
+func TestCreateSessionErrorStreamClosed(t *testing.T) {
+	stream := newClosedErrorsStream()
+
+	fc := &fakeClient{
+		stream: stream,
+		createResult: &browserv1.Browser{
+			ObjectMeta: browserv1.Browser{}.ObjectMeta,
+		},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
+	rw := httptest.NewRecorder()
+
+	svc.CreateSession(rw, req)
+
+	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.ErrUnknown(ErrInternal))
+}
+
+// TestCreateSessionEventStreamClosed covers the stream.Events() !ok branch in
+// createBrowserAndWait. Only the events channel is closed; errors channel stays
+// open so the select is forced to pick the events case.
+func TestCreateSessionEventStreamClosed(t *testing.T) {
+	stream := newClosedEventsStream()
+
+	fc := &fakeClient{
+		stream: stream,
+		createResult: &browserv1.Browser{
+			ObjectMeta: browserv1.Browser{}.ObjectMeta,
+		},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
+	rw := httptest.NewRecorder()
+
+	svc.CreateSession(rw, req)
+
+	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.ErrUnknown(ErrInternal))
 }
