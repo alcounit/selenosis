@@ -42,9 +42,7 @@ Selenosis is configured via environment variables:
 | `LISTEN_ADDR` | `:4444` | HTTP listen address. |
 | `BROWSER_SERVICE_URL` | `http://browser-service:8080` | `browser-service` API base URL. |
 | `PROXY_PORT` | `4445` | Sidecar port inside the browser pod. |
-| `NAMESPACE` | `default` | Kubernetes namespace where `Browser` resources are created. |
-| `SESSION_CREATE_ATTEMPTS` | `5` | Maximum number of attempts to create a new session before failing. |
-| `SESSION_CREATE_TIMEOUT` | `3m` | Overall timeout for a session creation request. |
+| `NAMESPACE` | `selenosis` | Kubernetes namespace where `Browser` resources are created. |
 | `BROWSER_STARTUP_TIMEOUT` | `3m` | Maximum allowed time for a Browser resource to be created. |
 | `BASIC_AUTH_FILE` | | Points to a file containing a JSON list of users.  |
 
@@ -54,7 +52,7 @@ Selenosis exposes Selenium-compatible endpoints on both `/` and `/wd/hub`.
 | Method | Path | Description |
 | --- | --- | --- |
 | `POST` | `/session` or `/wd/hub/session` | Create a new WebDriver session. |
-| `*` | `/wd/hub/session/{sessionId}/*` | Proxy all session traffic (HTTP and WebSocket). |
+| `*` | `/session/{sessionId}/*` or `/wd/hub/session/{sessionId}/*` | Proxy all session traffic (HTTP and WebSocket). |
 | `GET` | `/status` or `/wd/hub/status` | Simple service status response. |
 | `WS` | `/playwright/{name}/{version}` | Creates and proxies WS traffic. |
 | `*` | `/selenosis/v1/sessions/{sessionId}/proxy/http/*` | Internal HTTP-only proxy used by Seleniferous. |
@@ -419,61 +417,4 @@ REGISTRY, VERSION is expected to be provided externally, which allows the same M
 
 ## Deployment
 
-Minimal configuration
-
-```yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: selenosis
-  namespace: default
-```
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: selenosis
-  labels:
-    role: selenosis
-spec:
-  type: NodePort
-  selector:
-    role: selenosis
-  ports:
-  - name: http
-    port: 4444   
-    targetPort: 4444
-```
-
-``` yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: selenosis
-  labels:
-    role: selenosis
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      role: selenosis
-  template:
-    metadata:
-      labels:
-        role: selenosis
-    spec:
-      serviceAccountName: selenosis
-      containers:
-      - name: service
-        image: alcounit/selenosis:latest
-        imagePullPolicy: IfNotPresent
-        ports:
-        - containerPort: 4444
-        resources:
-          requests:
-            cpu: "100m"
-            memory: "128Mi"
-          limits:
-            cpu: "500m"
-            memory: "256Mi"
-```
+Helm chart [selenosis-deploy](https://github.com/alcounit/selenosis-deploy)

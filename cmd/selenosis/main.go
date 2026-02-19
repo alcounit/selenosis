@@ -140,10 +140,8 @@ func loadConfig() (service.ServiceConfig, *auth.AuthStore, string, string, error
 	apiURL := env.GetEnvOrDefault("BROWSER_SERVICE_URL", "http://browser-service:8080")
 
 	cfg.SidecarPort = env.GetEnvOrDefault("PROXY_PORT", "4445")
-	cfg.SessionCreateAttempts = env.GetEnvIntOrDefault("SESSION_CREATE_ATTEMPTS", 5)
-	cfg.SessionCreateTimeout = env.GetEnvDurationOrDefault("SESSION_CREATE_TIMEOUT", 3*time.Minute)
 	cfg.BrowserStartTimeout = env.GetEnvDurationOrDefault("BROWSER_STARTUP_TIMEOUT", 3*time.Minute)
-	cfg.Namespace = env.GetEnvOrDefault("NAMESPACE", "default")
+	cfg.Namespace = env.GetEnvOrDefault("NAMESPACE", "selenosis")
 
 	basicAuthFilePath := env.GetEnvOrDefault("BASIC_AUTH_FILE", "")
 	if basicAuthFilePath != "" {

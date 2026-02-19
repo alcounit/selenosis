@@ -128,3 +128,19 @@ func TestParseSelenosisOptionsErrors(t *testing.T) {
 	}
 }
 
+func TestParseSelenosisOptionsEmptyValueSlice(t *testing.T) {
+	q := url.Values{}
+	q["labels.env"] = []string{} // key present, but empty slice
+
+	opts, err := parseSelenosisOptions(q, defaultParseLimits())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	labels, ok := opts["labels"].(map[string]string)
+	if !ok {
+		t.Fatalf("expected labels map, got %#v", opts["labels"])
+	}
+	if v := labels["env"]; v != "" {
+		t.Fatalf("expected empty string value, got %q", v)
+	}
+}
