@@ -1,9 +1,9 @@
 dario.cat/mergo v1.0.2 h1:85+piFYR1tMbRrLcDwR18y4UKJ3aH1Tbzi24VRW1TK8=
 dario.cat/mergo v1.0.2/go.mod h1:E/hbnu0NxMFBjpMIE34DRGLWqDy0g5FuKDhCb31ngxA=
-github.com/alcounit/browser-controller v0.0.4 h1:bjwoEvYGsQQCl9tcUV9fs+HNHrvpGlWbdXtCZ0TM/3g=
-github.com/alcounit/browser-controller v0.0.4/go.mod h1:tpj7lwi2UJ49xt/vnEsZKAu5HAvtQJ7xbbcJO3wn+dc=
-github.com/alcounit/browser-service v0.0.4 h1:+1i3vQU0SialjmX/em2pjMB6Q+KgPngvqZacZZJvalY=
-github.com/alcounit/browser-service v0.0.4/go.mod h1:IiPWeaCHpl1uklnPqrzBqNVo8cyDakybEYX0MV7HjiU=
+github.com/alcounit/browser-controller v0.0.6 h1:EJ7WAgxIwrn4DTpNVET/L67+WhRQDduSuHAMxcPw4gg=
+github.com/alcounit/browser-controller v0.0.6/go.mod h1:tpj7lwi2UJ49xt/vnEsZKAu5HAvtQJ7xbbcJO3wn+dc=
+github.com/alcounit/browser-service v0.0.5 h1:CuBv8wSVyNXAxslCl16ahwemLHj7Pv5aI5hFMSvX88Y=
+github.com/alcounit/browser-service v0.0.5/go.mod h1:el3dWyMLDd/bT2vyC6Zcsl8P5u9QmZmaTf9RFp7O1+k=
 github.com/coreos/go-systemd/v22 v22.5.0/go.mod h1:Y58oyj3AT4RCenI/lSvhwexgC+NSVTIJ3seZv2GcEnc=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
