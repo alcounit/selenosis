@@ -1,0 +1,5 @@
+.DS_Store
+Dockerfile.local
+Makefile.local
+out/
+examples/

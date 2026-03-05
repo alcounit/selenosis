@@ -1237,8 +1237,8 @@ func newClosedErrorsStream() *singleChannelStream {
 }
 
 func (s *singleChannelStream) Events() <-chan *event.BrowserEvent { return s.events }
-func (s *singleChannelStream) Errors() <-chan error                { return s.errs }
-func (s *singleChannelStream) Close()                              {}
+func (s *singleChannelStream) Errors() <-chan error               { return s.errs }
+func (s *singleChannelStream) Close()                             {}
 
 // TestCreateSessionErrorStreamClosed covers the stream.Errors() !ok branch in
 // createBrowserAndWait. Only the errors channel is closed; events channel stays
