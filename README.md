@@ -1,4 +1,4 @@
-[![Go Reference](https://pkg.go.dev/badge/github.com/alcounit/selenosis.svg)](https://pkg.go.dev/github.com/alcounit/selenosis/v2) [![Docker Pulls](https://img.shields.io/docker/pulls/alcounit/selenosis.svg)](https://hub.docker.com/r/alcounit/selenosis)
+[![GitHub release](https://img.shields.io/github/v/release/alcounit/selenosis)](https://github.com/alcounit/selenosis/releases) [![Go Reference](https://pkg.go.dev/badge/github.com/alcounit/selenosis.svg)](https://pkg.go.dev/github.com/alcounit/selenosis/v2) [![Docker Pulls](https://img.shields.io/docker/pulls/alcounit/selenosis.svg)](https://hub.docker.com/r/alcounit/selenosis)
 
 # selenosis
 A stateless Selenium hub for Kubernetes that creates a browser resource per session and proxies traffic to it.
