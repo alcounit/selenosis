@@ -23,6 +23,10 @@ var (
 
 type Capabilities map[string]any
 
+type CreateSessionRequest struct {
+	Capabilities map[string]Capabilities `json:"capabilities"`
+}
+
 func (c Capabilities) ValidateCapabilities() {
 	if _, ok := c[browserVersion]; ok {
 		c[version] = c[browserVersion]

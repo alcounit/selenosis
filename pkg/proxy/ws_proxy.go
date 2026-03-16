@@ -99,7 +99,7 @@ func (p *WSProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	upstreamHeaders.Del("Origin")
 
 	if p.dialRetryEnabled {
-		upstreamConn, resp, err = dialWithWait(targetURL.String(), &p.Dialer, upstreamHeaders, p.timeout)
+		upstreamConn, resp, err = dialWithWait(r.Context(), targetURL.String(), &p.Dialer, upstreamHeaders, p.timeout)
 	} else {
 		upstreamConn, resp, err = p.Dialer.DialContext(r.Context(), targetURL.String(), upstreamHeaders)
 	}
@@ -254,8 +254,8 @@ func filterUpgradeResponseHeaders(src http.Header) http.Header {
 	return dst
 }
 
-func dialWithWait(target string, dialer *websocket.Dialer, headers http.Header, timeout time.Duration) (*websocket.Conn, *http.Response, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func dialWithWait(ctx context.Context, target string, dialer *websocket.Dialer, headers http.Header, timeout time.Duration) (*websocket.Conn, *http.Response, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	ticker := time.NewTicker(100 * time.Millisecond)

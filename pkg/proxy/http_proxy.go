@@ -13,6 +13,7 @@ var DefaultTransport http.RoundTripper = &http.Transport{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
 	}).DialContext,
+	IdleConnTimeout:     30 * time.Second,
 	TLSHandshakeTimeout: 10 * time.Second,
 }
 
