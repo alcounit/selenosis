@@ -16,7 +16,7 @@ import (
 
 	browserv1 "github.com/alcounit/browser-controller/apis/browser/v1"
 	logctx "github.com/alcounit/browser-controller/pkg/log"
-	"github.com/alcounit/browser-service/pkg/client"
+	browserclient "github.com/alcounit/browser-service/pkg/client/browser"
 	"github.com/alcounit/selenosis/v2/pkg/auth"
 	"github.com/alcounit/selenosis/v2/pkg/ipuuid"
 	"github.com/alcounit/selenosis/v2/pkg/proxy"
@@ -41,7 +41,7 @@ const (
 )
 
 type Service struct {
-	client client.Client
+	client browserclient.Client
 	config ServiceConfig
 }
 
@@ -67,7 +67,7 @@ type browserError struct {
 	err  error
 }
 
-func NewService(client client.Client, config ServiceConfig) *Service {
+func NewService(client browserclient.Client, config ServiceConfig) *Service {
 	return &Service{
 		client: client,
 		config: config,
@@ -143,6 +143,13 @@ func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
 	_, podIP, waitErr := s.createBrowserAndWait(ctx, log, template)
 	if waitErr != nil {
 		writeCreateSessionWaitError(rw, waitErr)
+		return
+	}
+
+	ip := net.ParseIP(podIP)
+	if ip == nil {
+		log.Err(fmt.Errorf("invalid pod IP: %s", podIP)).Msg("failed to parse pod IP")
+		writeErrorResponse(rw, http.StatusInternalServerError, selenium.Error("failed to parse browser ip", ErrInternal))
 		return
 	}
 
@@ -368,14 +375,14 @@ func (s *Service) RouteHTTP(rw http.ResponseWriter, req *http.Request) {
 func (s *Service) createBrowserAndWait(ctx context.Context, logger zerolog.Logger, template *browserv1.Browser) (string, string, *browserError) {
 	logger.Info().Msg("creating browser resource")
 
-	stream, err := s.client.Events(ctx, s.config.Namespace, client.WithBrowserName(template.GetName()))
+	stream, err := s.client.Events(ctx, s.config.Namespace, browserclient.WithName(template.GetName()))
 	if err != nil {
 		logger.Err(err).Str("name", template.GetName()).Msg("failed to start browser event stream")
 		return template.GetName(), "", &browserError{kind: browserEventsStart, err: err}
 	}
 	defer stream.Close()
 
-	result, err := s.client.CreateBrowser(ctx, s.config.Namespace, template)
+	result, err := s.client.Create(ctx, s.config.Namespace, template)
 	if err != nil {
 		logger.Err(err).Msg("failed to create browser resource")
 		return "", "", &browserError{kind: browserCreate, err: err}

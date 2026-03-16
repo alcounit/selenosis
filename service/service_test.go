@@ -17,7 +17,7 @@ import (
 	"time"
 
 	browserv1 "github.com/alcounit/browser-controller/apis/browser/v1"
-	"github.com/alcounit/browser-service/pkg/client"
+	browserclient "github.com/alcounit/browser-service/pkg/client/browser"
 	"github.com/alcounit/browser-service/pkg/event"
 	"github.com/alcounit/selenosis/v2/pkg/auth"
 	"github.com/alcounit/selenosis/v2/pkg/ipuuid"
@@ -177,6 +177,29 @@ func TestCreateSessionContextDone(t *testing.T) {
 	svc.CreateSession(rw, req)
 
 	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.ErrUnknown(ErrInternal))
+}
+
+func TestCreateSessionInvalidPodIP(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{
+		Browser: &browserv1.Browser{
+			Status: browserv1.BrowserStatus{Phase: "Running", PodIP: ""},
+		},
+	}
+
+	fc := &fakeClient{
+		stream: stream,
+		createResult: &browserv1.Browser{
+			ObjectMeta: metav1.ObjectMeta{Name: "br"},
+		},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
+	rw := httptest.NewRecorder()
+
+	svc.CreateSession(rw, req)
+
+	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.Error("failed to parse browser ip", ErrInternal))
 }
 
 func TestCreateSessionSuccess(t *testing.T) {
@@ -971,12 +994,12 @@ func verifyResponseError(t *testing.T, rw *httptest.ResponseRecorder, expectedCo
 type fakeClient struct {
 	createErr    error
 	createResult *browserv1.Browser
-	stream       client.BrowserEventStream
+	stream       browserclient.EventStream
 	streamErr    error
-	eventsOpts   []client.EventsOption
+	eventsOpts   []event.EventsOption
 }
 
-func (f *fakeClient) CreateBrowser(ctx context.Context, namespace string, browser *browserv1.Browser) (*browserv1.Browser, error) {
+func (f *fakeClient) Create(ctx context.Context, namespace string, browser *browserv1.Browser) (*browserv1.Browser, error) {
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
@@ -986,19 +1009,19 @@ func (f *fakeClient) CreateBrowser(ctx context.Context, namespace string, browse
 	return browser, nil
 }
 
-func (f *fakeClient) GetBrowser(ctx context.Context, namespace, name string) (*browserv1.Browser, error) {
+func (f *fakeClient) Get(ctx context.Context, namespace, name string) (*browserv1.Browser, error) {
 	return nil, nil
 }
 
-func (f *fakeClient) DeleteBrowser(ctx context.Context, namespace, name string) error {
+func (f *fakeClient) Delete(ctx context.Context, namespace, name string) error {
 	return nil
 }
 
-func (f *fakeClient) ListBrowsers(ctx context.Context, namespace string) ([]*browserv1.Browser, error) {
+func (f *fakeClient) List(ctx context.Context, namespace string) ([]*browserv1.Browser, error) {
 	return nil, nil
 }
 
-func (f *fakeClient) Events(ctx context.Context, namespace string, opts ...client.EventsOption) (client.BrowserEventStream, error) {
+func (f *fakeClient) Events(ctx context.Context, namespace string, opts ...event.EventsOption) (browserclient.EventStream, error) {
 	if f.streamErr != nil {
 		return nil, f.streamErr
 	}
@@ -1014,9 +1037,9 @@ type captureClient struct {
 	created *browserv1.Browser
 }
 
-func (c *captureClient) CreateBrowser(ctx context.Context, namespace string, browser *browserv1.Browser) (*browserv1.Browser, error) {
+func (c *captureClient) Create(ctx context.Context, namespace string, browser *browserv1.Browser) (*browserv1.Browser, error) {
 	c.created = browser
-	return c.fakeClient.CreateBrowser(ctx, namespace, browser)
+	return c.fakeClient.Create(ctx, namespace, browser)
 }
 
 type fakeStream struct {

@@ -46,6 +46,70 @@ func TestIsWebSocketRequest(t *testing.T) {
 	}
 }
 
+func TestIsWebSocketRequestMultiValueConnection(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+	req.Header.Set("Connection", "keep-alive, Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	if !IsWebSocketRequest(req) {
+		t.Fatal("expected true for multi-value Connection header")
+	}
+}
+
+func TestIsWebSocketRequestLowercaseConnection(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+	req.Header.Set("Connection", "upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	if !IsWebSocketRequest(req) {
+		t.Fatal("expected true for lowercase Connection: upgrade")
+	}
+}
+
+func TestIsWebSocketRequestCaseInsensitiveUpgrade(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "WebSocket")
+	if !IsWebSocketRequest(req) {
+		t.Fatal("expected true for mixed-case Upgrade: WebSocket")
+	}
+}
+
+func TestIsWebSocketRequestMissingUpgradeHeader(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+	req.Header.Set("Connection", "Upgrade")
+	if IsWebSocketRequest(req) {
+		t.Fatal("expected false when Upgrade header is absent")
+	}
+}
+
+func TestHeaderContainsToken(t *testing.T) {
+	tests := []struct {
+		name     string
+		values   []string
+		token    string
+		expected bool
+	}{
+		{"exact match", []string{"Upgrade"}, "upgrade", true},
+		{"lowercase value", []string{"upgrade"}, "upgrade", true},
+		{"multi-value same entry", []string{"keep-alive, Upgrade"}, "upgrade", true},
+		{"multi separate entries", []string{"keep-alive", "Upgrade"}, "upgrade", true},
+		{"no match", []string{"keep-alive"}, "upgrade", false},
+		{"empty header", []string{}, "upgrade", false},
+		{"token with surrounding spaces", []string{"  Upgrade  "}, "upgrade", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := http.Header{}
+			for _, v := range tt.values {
+				h.Add("Connection", v)
+			}
+			got := headerContainsToken(h, "Connection", tt.token)
+			if got != tt.expected {
+				t.Errorf("headerContainsToken(%q, %q) = %v, want %v", tt.values, tt.token, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestCloneHeadersAndForwarded(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
 	req.Header.Set("X-Test", "a")
@@ -143,7 +207,7 @@ func TestDialWithWaitSuccess(t *testing.T) {
 		_ = writeHandshakeResponse(serverConn)
 	}()
 
-	conn, resp, err := dialWithWait("ws://upstream.test/ws", dialer, http.Header{}, time.Second)
+	conn, resp, err := dialWithWait(context.Background(), "ws://upstream.test/ws", dialer, http.Header{}, time.Second)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -165,7 +229,7 @@ func TestDialWithWaitTimeout(t *testing.T) {
 		return nil, errors.New("dial failed")
 	}
 
-	conn, _, err := dialWithWait("ws://upstream.test/ws", dialer, http.Header{}, 250*time.Millisecond)
+	conn, _, err := dialWithWait(context.Background(), "ws://upstream.test/ws", dialer, http.Header{}, 250*time.Millisecond)
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
@@ -177,6 +241,36 @@ func TestDialWithWaitTimeout(t *testing.T) {
 	}
 	if atomic.LoadInt32(&attempts) < 2 {
 		t.Fatalf("expected retries, got %d attempts", attempts)
+	}
+}
+
+func TestDialWithWaitContextCancelled(t *testing.T) {
+	var attempts int32
+	dialer := &websocket.Dialer{}
+	dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		atomic.AddInt32(&attempts, 1)
+		return nil, errors.New("dial failed")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	start := time.Now()
+	conn, _, err := dialWithWait(ctx, "ws://upstream.test/ws", dialer, http.Header{}, 10*time.Second)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error on cancelled context")
+	}
+	if conn != nil {
+		t.Fatal("expected nil connection")
+	}
+	// Should return well before the 10s timeout because context is already done.
+	if elapsed > 2*time.Second {
+		t.Fatalf("dialWithWait did not respect context cancellation: took %v", elapsed)
+	}
+	if atomic.LoadInt32(&attempts) > 2 {
+		t.Fatalf("expected at most 1-2 attempts on cancelled context, got %d", attempts)
 	}
 }
 

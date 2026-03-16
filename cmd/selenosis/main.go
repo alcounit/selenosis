@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,6 +11,7 @@ import (
 
 	logctx "github.com/alcounit/browser-controller/pkg/log"
 	"github.com/alcounit/browser-service/pkg/client"
+	browserclient "github.com/alcounit/browser-service/pkg/client/browser"
 	"github.com/alcounit/selenosis/v2/pkg/auth"
 	"github.com/alcounit/selenosis/v2/pkg/env"
 	"github.com/alcounit/selenosis/v2/service"
@@ -37,7 +37,7 @@ func main() {
 		Logger:     log,
 	}
 
-	client, err := client.NewClient(clientConfig)
+	client, err := browserclient.NewClient(clientConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create Browser client")
 	}
@@ -148,19 +148,6 @@ func loadConfig() (service.ServiceConfig, *auth.AuthStore, string, string, error
 		if authStore, err = auth.LoadFromJSONFile(basicAuthFilePath); err != nil {
 			return cfg, authStore, "", "", fmt.Errorf("BASIC_AUTH_FILE file read error: %v", err)
 		}
-	}
-
-	if addr == "" {
-		return cfg, authStore, "", "", errors.New("LISTEN_ADDR must be provided")
-	}
-	if cfg.SidecarPort == "" {
-		return cfg, authStore, "", "", errors.New("PROXY_PORT must be provided")
-	}
-	if apiURL == "" {
-		return cfg, authStore, "", "", errors.New("BROWSER_SERVICE_URL must be provided")
-	}
-	if cfg.Namespace == "" {
-		return cfg, authStore, "", "", errors.New("NAMESPACE must be provided")
 	}
 
 	return cfg, authStore, addr, apiURL, err
