@@ -26,10 +26,15 @@ func main() {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	log := zerolog.New(os.Stdout).With().Timestamp().Logger()
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	cfg, authStore, listenAddr, apiURL, err := loadConfig()
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to load configuration")
 	}
+
+	go auth.Watch(ctx, authStore)
 
 	clientConfig := client.ClientConfig{
 		BaseURL:    apiURL,
@@ -65,24 +70,7 @@ func main() {
 		return http.HandlerFunc(fn)
 	})
 
-	router.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-
-			ctx := req.Context()
-			if authStore != nil {
-				user, pass, ok := req.BasicAuth()
-				if !ok || !authStore.Authenticate(user, pass) {
-					log.Error().Msg("request authentication failed")
-					http.Error(rw, "authentication failed", http.StatusUnauthorized)
-					return
-				}
-				req.URL.User = nil
-				ctx = auth.WithOwner(ctx, auth.Owner{Name: user})
-			}
-
-			next.ServeHTTP(rw, req.WithContext(ctx))
-		})
-	})
+	router.Use(basicAuthMiddleware(authStore, log))
 
 	selenium := chi.NewRouter()
 
@@ -116,16 +104,33 @@ func main() {
 		}
 	}()
 
-	stopCh := make(chan os.Signal, 1)
-	signal.Notify(stopCh, syscall.SIGINT, syscall.SIGTERM)
-	<-stopCh
+	<-ctx.Done()
+	stop()
 	log.Info().Msg("Shutting down HTTP server...")
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Err(err).Msg("HTTP server shutdown error")
 		os.Exit(1)
+	}
+}
+
+func basicAuthMiddleware(authStore *auth.AuthStore, log zerolog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			if authStore != nil {
+				user, pass, ok := req.BasicAuth()
+				if !ok || !authStore.Authenticate(user, pass) {
+					log.Error().Msg("request authentication failed")
+					http.Error(rw, "authentication failed", http.StatusUnauthorized)
+					return
+				}
+				req.URL.User = nil
+				req = req.WithContext(auth.WithOwner(req.Context(), auth.Owner{Name: user}))
+			}
+			next.ServeHTTP(rw, req)
+		})
 	}
 }
 
