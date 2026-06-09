@@ -128,7 +128,9 @@ func (p *WSProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	clientConn, err := p.Upgrader.Upgrade(w, r, upgradeHeaders)
 	if err != nil {
 		log.Error().Err(err).Msg("client websocket upgrade failed")
-		http.Error(w, fmt.Sprintf("Upgrade client connection failed: %s", err.Error()), http.StatusInternalServerError)
+		if err = upstreamConn.Close(); err != nil {
+			log.Error().Err(err).Msg("failed to close upstream connection")
+		}
 		return
 	}
 

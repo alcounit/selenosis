@@ -21,6 +21,12 @@ A stateless Selenium hub for Kubernetes that creates a browser resource per sess
   - [Example payload](#example-payload)
   - [Behavioral notes](#behavioral-notes)
 - [Playwright (experimental)](#playwright-experimental)
+- [MCP (experimental)](#mcp-experimental)
+  - [Create an MCP session](#create-an-mcp-session)
+  - [Proxying MCP traffic](#proxying-mcp-traffic)
+  - [Terminating an MCP session](#terminating-an-mcp-session)
+  - [MCP Playwright example](#mcp-playwright-example)
+  - [MCP Selenium example](#mcp-selenium-example)
 - [Basic authentication](#basic-authentication)
 - [Build and image workflow](#build-and-image-workflow)
 - [Deployment](#deployment)
@@ -57,10 +63,13 @@ Selenosis exposes Selenium-compatible endpoints on both `/` and `/wd/hub`.
 | `*` | `/session/{sessionId}/*` or `/wd/hub/session/{sessionId}/*` | Proxy all session traffic (HTTP and WebSocket). |
 | `GET` | `/status` or `/wd/hub/status` | Simple service status response. |
 | `WS` | `/playwright/{name}/{version}` | Creates and proxies WS traffic. |
+| `POST` | `/mcp` | MCP Streamable HTTP transport. With no `Mcp-Session-Id` header and `?browser=<name>&version=<version>` it creates a browser and initializes a session; otherwise routed by `Mcp-Session-Id`. |
+| `GET` | `/mcp` | MCP Streamable HTTP transport — server-initiated stream (routed by `Mcp-Session-Id`). |
+| `DELETE` | `/mcp` | Terminate an MCP session and tear down its browser (routed by `Mcp-Session-Id`). |
 | `*` | `/selenosis/v1/sessions/{sessionId}/proxy/http/*` | Internal HTTP-only proxy used by Seleniferous. |
 
 ## Request flow
-1. Client calls `POST /wd/hub/session` with W3C capabilities or `WS /playwright/{name}/{version}`.
+1. Client calls `POST /wd/hub/session` with W3C capabilities, `WS /playwright/{name}/{version}`, or `POST /mcp?browser=<name>&version=<version>}` (MCP `initialize`).
 2. Selenosis creates a `Browser` resource via `browser-service`.
 3. When the browser pod is `Running`, Selenosis maps its IP to a UUID session id.
 4. All session requests are proxied to the sidecar `seleniferous` in that pod.
@@ -333,6 +342,117 @@ await browser.close();
 - Invalid JSON results in the Browser being marked as **Failed**.
 - Options are applied when the Pod is created.
 
+## Error responses
+
+When proxying to a browser pod fails, Selenosis maps the failure to a status code that lets clients react correctly. A pod that is **unreachable** (for example, torn down after the idle timeout) is detected as a connection/dial failure to the sidecar:
+
+| Endpoint | Pod unreachable | Other proxy failure |
+| --- | --- | --- |
+| `POST /session` | `500` Selenium `session not created` | `500` Selenium `session not created` |
+| `* /session/{sessionId}/*` (HTTP) | `404` Selenium `invalid session id` | `500` Selenium `unknown error` |
+| `/selenosis/v1/.../proxy/http/*` | `404` `session not found` | `500` |
+| `POST /mcp` (initialize) | `500` | `500` |
+| `POST`/`GET`/`DELETE /mcp` (routed by `Mcp-Session-Id`) | `404` `session not found` | `500` |
+
+For session-scoped endpoints an unreachable pod returns `404` so the client can tell the session no longer exists and start a new one. WebSocket endpoints (BiDi/CDP/Playwright) are not covered by this mapping — a failed upstream dial closes the connection.
+
+## MCP (experimental)
+
+Selenosis supports the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) for Playwright and Selenium MCP servers running inside browser pods.
+
+The MCP server runs inside the browser container (not in seleniferous). Selenosis creates the browser pod and proxies MCP traffic through the seleniferous sidecar to the MCP server.
+
+Only the **Streamable HTTP** transport is supported, exposed on a single endpoint `/mcp` (`POST`, `GET`, `DELETE`). Sessions are identified by the `Mcp-Session-Id` header — Selenosis is stateless and derives the target pod from it.
+
+### Create an MCP session
+
+A session is created by the standard MCP `initialize` call: a `POST /mcp` **without** an `Mcp-Session-Id` header. Selenosis requires `browser` and `version` query parameters to know which browser to start:
+
+`POST /mcp?browser=<name>&version=<version>`
+
+Selenosis creates a `Browser` resource, waits for the pod to become ready, and forwards the `initialize` request to the MCP server. The pod-derived session id is returned in the `Mcp-Session-Id` **response header**; clients send it back on every subsequent request.
+
+Additional query parameters are parsed as [`selenosis:options`](#selenosisoptions) (same as the Playwright endpoint).
+
+```bash
+curl -isS -X POST 'http://{selenosis_host:port}/mcp?browser=playwright-mcp&version=0.0.75' \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"example","version":"1.0.0"}}}'
+# the response includes header: Mcp-Session-Id: <pod-uuid>
+```
+
+### Proxying MCP traffic
+
+Once initialized, send the returned `Mcp-Session-Id` header on every request. Selenosis routes by that header to the correct pod and proxies to the sidecar `/mcp`.
+
+```bash
+# Client request
+curl -sS -X POST http://{selenosis_host:port}/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Mcp-Session-Id: <pod-uuid>' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+
+# Server-initiated message stream
+curl -sS http://{selenosis_host:port}/mcp \
+  -H 'Mcp-Session-Id: <pod-uuid>'
+```
+
+### Terminating an MCP session
+
+```bash
+curl -sS -X DELETE http://{selenosis_host:port}/mcp \
+  -H 'Mcp-Session-Id: <pod-uuid>'
+```
+
+This ends the MCP session and tears down the browser pod.
+
+### Session expiry and reconnection
+
+If a browser pod is torn down (for example after the idle timeout), a later `POST`/`GET`/`DELETE /mcp` carrying the now-stale `Mcp-Session-Id` returns **`404`**. Per the MCP spec, a `404` on a request that includes a session id signals that the session no longer exists, so a spec-compliant client drops the id and performs a fresh `initialize` — which transparently starts a new browser pod. A missing `Mcp-Session-Id` header on a non-initialize request returns `400`, as does a malformed (non-UUID) id.
+
+### MCP Playwright example
+
+```javascript
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+
+// Point the transport at /mcp with the desired browser/version.
+// The SDK performs `initialize`, captures the Mcp-Session-Id response header,
+// and replays it on every subsequent request automatically.
+const url = new URL('http://{selenosis_host:port}/mcp?browser=playwright-mcp&version=0.0.75');
+const transport = new StreamableHTTPClientTransport(url);
+const client = new Client({ name: 'example', version: '1.0.0' });
+await client.connect(transport);
+
+const tools = await client.listTools();
+await client.callTool({
+  name: 'browser_navigate',
+  arguments: { url: 'https://example.com' }
+});
+
+await client.close(); // sends DELETE /mcp and tears down the pod
+```
+
+### MCP Selenium example
+
+```javascript
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+
+const url = new URL('http://{selenosis_host:port}/mcp?browser=playwright-mcp&version=0.0.75');
+const transport = new StreamableHTTPClientTransport(url);
+const client = new Client({ name: 'example', version: '1.0.0' });
+await client.connect(transport);
+
+const tools = await client.listTools();
+await client.callTool({
+  name: 'navigate',
+  arguments: { url: 'https://example.com' }
+});
+
+await client.close();
+```
+
 ## Basic Authentication in Selenosis
 
 Selenosis supports optional HTTP Basic Authentication for protecting its public API endpoints.
@@ -407,15 +527,17 @@ The project is built and packaged entirely via Docker. Local Go installation is 
 
 The build process is controlled via the following Makefile variables:
 
-Variable	Description
-- BINARY_NAME	Name of the produced binary (selenosis).
-- REGISTRY	Docker registry prefix (default: localhost:5000).
-- IMAGE_NAME	Full image name (<registry>/selenosis).
-- VERSION	Image version/tag (default: develop).
-- PLATFORM	Target platform (default: linux/amd64).
-- CONTAINER_TOOL docker cmd
+| Variable         | Description                                                  |
+|------------------|--------------------------------------------------------------|
+| `BINARY_NAME`    | Name of the produced binary (fixed: `selenosis`)            |
+| `REGISTRY`       | Docker registry prefix (default: `localhost:5000`)           |
+| `IMAGE_NAME`     | Full image name, derived as `$(REGISTRY)/$(BINARY_NAME)`     |
+| `VERSION`        | Image version/tag (default: `develop`)                       |
+| `EXTRA_TAGS`     | Additional `-t` tags passed to `docker-push` (default: none) |
+| `PLATFORM`       | Target platform (default: `linux/amd64`)                     |
+| `CONTAINER_TOOL` | Container build tool (default: `docker`)                     |
 
-REGISTRY, VERSION is expected to be provided externally, which allows the same Makefile to be used locally and in CI.
+`REGISTRY` and `VERSION` are expected to be provided externally, which allows the same Makefile to be used locally and in CI.
 
 ## Deployment
 

@@ -1,7 +1,9 @@
 package selenium
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 )
 
 type SeleniumError struct {
@@ -9,6 +11,12 @@ type SeleniumError struct {
 		Name    string `json:"error"`
 		Message string `json:"message"`
 	} `json:"value"`
+}
+
+func WriteError(rw http.ResponseWriter, status int, err *SeleniumError) {
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(status)
+	json.NewEncoder(rw).Encode(err)
 }
 
 func ErrSessionNotCreated(err error) *SeleniumError {
