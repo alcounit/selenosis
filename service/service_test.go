@@ -21,6 +21,7 @@ import (
 	"github.com/alcounit/browser-service/pkg/event"
 	"github.com/alcounit/selenosis/v2/pkg/auth"
 	"github.com/alcounit/selenosis/v2/pkg/ipuuid"
+	"github.com/alcounit/selenosis/v2/pkg/jsonrpc"
 	"github.com/alcounit/selenosis/v2/pkg/proxy"
 	"github.com/alcounit/selenosis/v2/pkg/selenium"
 	"github.com/go-chi/chi/v5"
@@ -199,7 +200,12 @@ func TestCreateSessionInvalidPodIP(t *testing.T) {
 
 	svc.CreateSession(rw, req)
 
-	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.Error("failed to parse browser ip", ErrInternal))
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "failed to get browser IP") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
 }
 
 func TestCreateSessionSuccess(t *testing.T) {
@@ -413,6 +419,48 @@ func TestProxySessionHTTP(t *testing.T) {
 	if gotReq.Header.Get("X-Selenosis-External-URL") == "" {
 		t.Fatal("expected external url header")
 	}
+}
+
+func TestProxySessionUpstreamUnreachable(t *testing.T) {
+	ip := net.ParseIP("127.0.0.1")
+	uid, _ := ipuuid.IPToUUID(ip)
+	sessionId := uid.String()
+
+	setTestTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, dialErr()
+	}))
+
+	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4444"})
+	req := newRequestWithParams(http.MethodGet, "/wd/hub/session/"+sessionId+"/url", nil, map[string]string{"sessionId": sessionId})
+	rw := httptest.NewRecorder()
+
+	svc.ProxySession(rw, req)
+
+	if rw.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "invalid session id") {
+		t.Fatalf("expected invalid session id error, got %s", rw.Body.String())
+	}
+}
+
+func TestMcpHandlerUpstreamUnreachable(t *testing.T) {
+	ip := net.ParseIP("127.0.0.1")
+	uid, _ := ipuuid.IPToUUID(ip)
+	sessionId := uid.String()
+
+	setTestTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, dialErr()
+	}))
+
+	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4444"})
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.Header.Set("Mcp-Session-Id", sessionId)
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	assertMcpError(t, rw, http.StatusNotFound, -32001)
 }
 
 func TestSessionStatus(t *testing.T) {
@@ -660,7 +708,7 @@ func TestPlaywrightInvalidPodIP(t *testing.T) {
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
 	}
-	if !strings.Contains(rw.Body.String(), "failed to convert IP to UUID") {
+	if !strings.Contains(rw.Body.String(), "failed to get browser IP") {
 		t.Fatalf("unexpected body: %q", rw.Body.String())
 	}
 }
@@ -694,7 +742,7 @@ func TestPlaywrightNilBrowserEventIsIgnored(t *testing.T) {
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
 	}
-	if !strings.Contains(rw.Body.String(), "failed to convert IP to UUID") {
+	if !strings.Contains(rw.Body.String(), "failed to get browser IP") {
 		t.Fatalf("unexpected body: %q", rw.Body.String())
 	}
 }
@@ -743,6 +791,423 @@ func TestPlaywrightProxyAttemptAndOwnerLabel(t *testing.T) {
 	}
 	if fc.created.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey] != "qa-owner" {
 		t.Fatalf("unexpected owner label: %q", fc.created.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey])
+	}
+}
+
+func mcpSessionID(t *testing.T, ip string) string {
+	t.Helper()
+	uid, err := ipuuid.IPToUUID(net.ParseIP(ip))
+	if err != nil {
+		t.Fatalf("failed to build session id: %v", err)
+	}
+	return uid.String()
+}
+
+func runningStream(podIP string) *fakeStream {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{
+		Browser: &browserv1.Browser{
+			Status: browserv1.BrowserStatus{Phase: "Running", PodIP: podIP},
+		},
+	}
+	return stream
+}
+
+func mcpProxyRequest(t *testing.T, method, path string) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(method, path, nil)
+	req.Header.Set("Mcp-Session-Id", mcpSessionID(t, "127.0.0.1"))
+	return req
+}
+
+func TestMcpHandlerInitMissingParams(t *testing.T) {
+	svc := NewService(&fakeClient{}, ServiceConfig{})
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"no params", "/mcp"},
+		{"missing version", "/mcp?browser=chromium"},
+		{"missing browser", "/mcp?version=123"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			rw := httptest.NewRecorder()
+
+			svc.McpHandler(rw, req)
+
+			assertMcpError(t, rw, http.StatusBadRequest, jsonrpc.InvalidParams)
+		})
+	}
+}
+
+func TestMcpHandlerInitParseOptionsError(t *testing.T) {
+	svc := NewService(&fakeClient{}, ServiceConfig{})
+	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123&labels.bad!=x", nil)
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "invalid label key") {
+		t.Fatalf("expected parse error, got %q", rw.Body.String())
+	}
+}
+
+func TestMcpHandlerInitCreateBrowserError(t *testing.T) {
+	fc := &fakeClient{createErr: errors.New("boom")}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
+	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", nil)
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "failed to create browser resource") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestMcpHandlerInitEventsError(t *testing.T) {
+	fc := &fakeClient{streamErr: errors.New("stream failed")}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
+	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", nil)
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "failed to start browser event stream") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestMcpHandlerInitStreamClosed(t *testing.T) {
+	stream := newFakeStream()
+	stream.Close()
+
+	fc := &fakeClient{
+		stream:       stream,
+		createResult: &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Name: "br"}},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
+	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", nil)
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+}
+
+func TestMcpHandlerInitFailedEvent(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{
+		Browser: &browserv1.Browser{
+			Status: browserv1.BrowserStatus{Phase: "Failed", Reason: "oops"},
+		},
+	}
+
+	fc := &fakeClient{
+		stream:       stream,
+		createResult: &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Name: "br"}},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
+	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", nil)
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "browser failed to start") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestMcpHandlerInitContextDone(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	fc := &fakeClient{
+		stream:       newFakeStream(),
+		createResult: &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Name: "br"}},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
+	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", nil).WithContext(ctx)
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "context cancelled") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestMcpHandlerInitInvalidPodIP(t *testing.T) {
+	fc := &fakeClient{
+		stream:       runningStream(""),
+		createResult: &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Name: "br"}},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
+	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", nil)
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "failed to get browser IP") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestMcpHandlerInitSuccess(t *testing.T) {
+	var gotReq *http.Request
+	setTestTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		gotReq = req
+		return response(http.StatusOK, "{}"), nil
+	}))
+
+	fc := &captureClient{
+		fakeClient: fakeClient{
+			stream:       runningStream("127.0.0.1"),
+			createResult: &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Name: "br"}},
+		},
+	}
+	svc := NewService(fc, ServiceConfig{
+		Namespace:           "ns",
+		SidecarPort:         "4444",
+		BrowserStartTimeout: time.Second,
+	})
+
+	ctx := auth.WithOwner(context.Background(), auth.Owner{Name: "mcp-user"})
+	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", nil).WithContext(ctx)
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rw.Code)
+	}
+	if gotReq == nil {
+		t.Fatal("expected transport to be called")
+	}
+	if gotReq.URL.Host != "127.0.0.1:4444" {
+		t.Fatalf("unexpected target host: %s", gotReq.URL.Host)
+	}
+	if gotReq.URL.Path != "/mcp" {
+		t.Fatalf("expected path /mcp, got %s", gotReq.URL.Path)
+	}
+	if fc.created == nil {
+		t.Fatal("expected browser to be created")
+	}
+	if fc.created.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey] != "mcp-user" {
+		t.Fatalf("unexpected owner label: %q", fc.created.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey])
+	}
+}
+
+func TestMcpHandlerInitSelenosisOptions(t *testing.T) {
+	setTestTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, "{}"), nil
+	}))
+
+	fc := &captureClient{
+		fakeClient: fakeClient{
+			stream:       runningStream("127.0.0.1"),
+			createResult: &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Name: "br"}},
+		},
+	}
+	svc := NewService(fc, ServiceConfig{
+		Namespace:           "ns",
+		SidecarPort:         "4444",
+		BrowserStartTimeout: time.Second,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123&labels.env=test", nil)
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rw.Code)
+	}
+	if fc.created == nil {
+		t.Fatal("expected browser to be created")
+	}
+	if fc.created.ObjectMeta.Annotations[browserv1.SelenosisOptionsAnnotationKey] == "" {
+		t.Fatalf("expected %s annotation", browserv1.SelenosisOptionsAnnotationKey)
+	}
+}
+
+func TestCreateBrowserSetOptionsError(t *testing.T) {
+	svc := NewService(&fakeClient{}, ServiceConfig{Namespace: "ns"})
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	rw := httptest.NewRecorder()
+
+	opts := map[string]any{"bad": make(chan int)}
+	if _, _, ok := svc.createBrowser(rw, req, "chromium", "123", opts, writeMcpWaitError); ok {
+		t.Fatal("expected createBrowser to fail on unmarshalable options")
+	}
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rw.Code)
+	}
+}
+
+func TestMcpHandlerMissingHeaderGet(t *testing.T) {
+	svc := NewService(&fakeClient{}, ServiceConfig{})
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	assertMcpError(t, rw, http.StatusBadRequest, jsonrpc.InvalidParams)
+}
+
+func TestMcpHandlerMissingHeaderDelete(t *testing.T) {
+	svc := NewService(&fakeClient{}, ServiceConfig{})
+	req := httptest.NewRequest(http.MethodDelete, "/mcp", nil)
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	assertMcpError(t, rw, http.StatusBadRequest, jsonrpc.InvalidParams)
+}
+
+func TestMcpHandlerInvalidHeader(t *testing.T) {
+	svc := NewService(&fakeClient{}, ServiceConfig{})
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.Header.Set("Mcp-Session-Id", "not-a-uuid")
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	assertMcpError(t, rw, http.StatusBadRequest, jsonrpc.InvalidParams)
+}
+
+func TestMcpHandlerRoutesToMcp(t *testing.T) {
+	var gotReq *http.Request
+	setTestTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		gotReq = req
+		return response(http.StatusOK, "{}"), nil
+	}))
+
+	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4444"})
+	req := mcpProxyRequest(t, http.MethodPost, "/mcp")
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if gotReq == nil {
+		t.Fatal("expected transport to be called")
+	}
+	if gotReq.URL.Host != "127.0.0.1:4444" {
+		t.Fatalf("unexpected target host: %s", gotReq.URL.Host)
+	}
+	if gotReq.URL.Path != "/mcp" {
+		t.Fatalf("expected path /mcp, got %s", gotReq.URL.Path)
+	}
+}
+
+func TestMcpHandlerGetRoutesToMcp(t *testing.T) {
+	var gotReq *http.Request
+	setTestTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		gotReq = req
+		return response(http.StatusOK, "{}"), nil
+	}))
+
+	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4444"})
+	req := mcpProxyRequest(t, http.MethodGet, "/mcp")
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if gotReq == nil {
+		t.Fatal("expected transport to be called")
+	}
+	if gotReq.URL.Path != "/mcp" {
+		t.Fatalf("expected path /mcp, got %s", gotReq.URL.Path)
+	}
+}
+
+func TestMcpHandlerDeleteRoutesToMcp(t *testing.T) {
+	var gotReq *http.Request
+	setTestTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		gotReq = req
+		return response(http.StatusOK, "{}"), nil
+	}))
+
+	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4444"})
+	req := mcpProxyRequest(t, http.MethodDelete, "/mcp")
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if gotReq == nil {
+		t.Fatal("expected transport to be called")
+	}
+	if gotReq.Method != http.MethodDelete {
+		t.Fatalf("expected DELETE method, got %s", gotReq.Method)
+	}
+	if gotReq.URL.Path != "/mcp" {
+		t.Fatalf("expected path /mcp, got %s", gotReq.URL.Path)
+	}
+}
+
+func TestMcpHandlerPreservesQueryParams(t *testing.T) {
+	var gotReq *http.Request
+	setTestTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		gotReq = req
+		return response(http.StatusOK, "{}"), nil
+	}))
+
+	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4444"})
+	req := mcpProxyRequest(t, http.MethodPost, "/mcp?foo=bar&baz=qux")
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if gotReq == nil {
+		t.Fatal("expected transport to be called")
+	}
+	if gotReq.URL.RawQuery != "foo=bar&baz=qux" {
+		t.Fatalf("expected query params to be preserved, got %q", gotReq.URL.RawQuery)
+	}
+}
+
+func TestMcpHandlerPreservesHeaders(t *testing.T) {
+	var gotReq *http.Request
+	setTestTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		gotReq = req
+		return response(http.StatusOK, "{}"), nil
+	}))
+
+	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4444"})
+	req := mcpProxyRequest(t, http.MethodPost, "/mcp")
+	req.Header.Set("X-Custom-Header", "custom-value")
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if gotReq == nil {
+		t.Fatal("expected transport to be called")
+	}
+	if got := gotReq.Header.Get("X-Custom-Header"); got != "custom-value" {
+		t.Fatalf("expected header to be preserved, got %q", got)
 	}
 }
 
@@ -966,6 +1431,61 @@ func TestWritePlaywrightWaitError(t *testing.T) {
 			}
 			if got := strings.TrimSpace(rw.Body.String()); got != tt.expected {
 				t.Fatalf("expected body %q, got %q", tt.expected, got)
+			}
+		})
+	}
+}
+
+func TestWriteMcpWaitError(t *testing.T) {
+	tests := []struct {
+		name     string
+		waitErr  *browserError
+		expected string
+	}{
+		{
+			name:     "create error",
+			waitErr:  &browserError{kind: browserCreate, err: errors.New("create failed")},
+			expected: "failed to create browser resource",
+		},
+		{
+			name:     "events start error",
+			waitErr:  &browserError{kind: browserEventsStart, err: errors.New("stream start failed")},
+			expected: "failed to start browser event stream",
+		},
+		{
+			name:     "stream closed",
+			waitErr:  &browserError{kind: browserStreamClosed},
+			expected: "browser event stream closed unexpectedly",
+		},
+		{
+			name:     "browser failed",
+			waitErr:  &browserError{kind: browserFailed},
+			expected: "browser failed to start",
+		},
+		{
+			name:     "stream error",
+			waitErr:  &browserError{kind: browserStreamError, err: errors.New("stream failed")},
+			expected: "browser event stream error",
+		},
+		{
+			name:     "context done",
+			waitErr:  &browserError{kind: browserContextDone},
+			expected: "context cancelled, stopping browser event stream",
+		},
+		{
+			name:     "unknown kind",
+			waitErr:  &browserError{kind: errorKind(999)},
+			expected: "Internal error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rw := httptest.NewRecorder()
+			writeMcpWaitError(rw, tt.waitErr)
+			assertMcpError(t, rw, http.StatusInternalServerError, -32603)
+			if !strings.Contains(rw.Body.String(), tt.expected) {
+				t.Fatalf("expected body to contain %q, got %q", tt.expected, rw.Body.String())
 			}
 		})
 	}

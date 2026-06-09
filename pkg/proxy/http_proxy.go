@@ -24,33 +24,34 @@ type ResponseModifier func(*http.Response) error
 type ErrorHandler func(w http.ResponseWriter, r *http.Request, err error)
 
 type HTTPReverseProxy struct {
-	rp *httputil.ReverseProxy
+	rp              *httputil.ReverseProxy
+	requestModifier RequestModifier
 }
 
 type HTTPReverseProxyOptions func(*HTTPReverseProxy)
 
 func WithTransport(transport http.RoundTripper) HTTPReverseProxyOptions {
-	return HTTPReverseProxyOptions(func(p *HTTPReverseProxy) {
+	return func(p *HTTPReverseProxy) {
 		p.rp.Transport = transport
-	})
+	}
 }
 
 func WithRequestModifier(modifier RequestModifier) HTTPReverseProxyOptions {
-	return HTTPReverseProxyOptions(func(p *HTTPReverseProxy) {
-		p.rp.Director = modifier
-	})
+	return func(p *HTTPReverseProxy) {
+		p.requestModifier = modifier
+	}
 }
 
-func WithResponseModifier(modifier func(*http.Response) error) HTTPReverseProxyOptions {
-	return HTTPReverseProxyOptions(func(p *HTTPReverseProxy) {
+func WithResponseModifier(modifier ResponseModifier) HTTPReverseProxyOptions {
+	return func(p *HTTPReverseProxy) {
 		p.rp.ModifyResponse = modifier
-	})
+	}
 }
 
 func WithErrorHandler(errHandler ErrorHandler) HTTPReverseProxyOptions {
-	return HTTPReverseProxyOptions(func(p *HTTPReverseProxy) {
+	return func(p *HTTPReverseProxy) {
 		p.rp.ErrorHandler = errHandler
-	})
+	}
 }
 
 func NewHTTPReverseProxy(opts ...HTTPReverseProxyOptions) *HTTPReverseProxy {
@@ -66,18 +67,22 @@ func NewHTTPReverseProxy(opts ...HTTPReverseProxyOptions) *HTTPReverseProxy {
 		opt(&proxy)
 	}
 
+	proxy.rp.Rewrite = func(pr *httputil.ProxyRequest) {
+		pr.SetXForwarded()
+
+		if proxy.requestModifier != nil {
+			proxy.requestModifier(pr.Out)
+			return
+		}
+
+		pr.Out.URL.Scheme = pr.In.URL.Scheme
+		pr.Out.URL.Host = pr.In.URL.Host
+		pr.Out.URL.Path = pr.In.URL.Path
+	}
+
 	return &proxy
 }
 
 func (p *HTTPReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-
-	if p.rp.Director == nil {
-		p.rp.Director = func(r *http.Request) {
-			r.URL.Scheme = req.URL.Scheme
-			r.URL.Host = req.URL.Host
-			r.URL.Path = req.URL.Path
-		}
-	}
-
 	p.rp.ServeHTTP(rw, req)
 }

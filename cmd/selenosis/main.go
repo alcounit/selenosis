@@ -34,7 +34,9 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to load configuration")
 	}
 
-	go auth.Watch(ctx, authStore)
+	if authStore != nil {
+		go auth.Watch(ctx, authStore)
+	}
 
 	clientConfig := client.ClientConfig{
 		BaseURL:    apiURL,
@@ -84,6 +86,14 @@ func main() {
 	router.Mount("/wd/hub", selenium)
 
 	router.Get("/playwright/{name}/{version}", svc.Playwright)
+
+	mcp := chi.NewRouter()
+
+	mcp.Post("/", svc.McpHandler)
+	mcp.Get("/", svc.McpHandler)
+	mcp.Delete("/", svc.McpHandler)
+
+	router.Mount("/mcp", mcp)
 
 	router.Route("/selenosis/v1/sessions/{sessionId}", func(r chi.Router) {
 		r.Route("/proxy", func(r chi.Router) {

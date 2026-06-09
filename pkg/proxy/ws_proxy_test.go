@@ -390,6 +390,52 @@ func TestWSProxyServeHTTPUpgradeErrorWithRetry(t *testing.T) {
 	<-done
 }
 
+func TestWSProxyServeHTTPClosesUpstreamOnUpgradeFailure(t *testing.T) {
+	upClient, upServer := net.Pipe()
+	t.Cleanup(func() { _ = upClient.Close() })
+	t.Cleanup(func() { _ = upServer.Close() })
+
+	p := NewWebSocketReverseProxy(func(r *http.Request) (*url.URL, error) {
+		return url.Parse("ws://upstream.test/ws")
+	})
+	p.Dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return upClient, nil
+	}
+
+	upstreamClosed := make(chan struct{})
+	go func() {
+		if err := writeHandshakeResponse(upServer); err != nil {
+			return
+		}
+		// Blocks until the proxy closes the upstream connection after the
+		// client upgrade fails; an open read here would mean the conn leaked.
+		buf := make([]byte, 1)
+		_, _ = upServer.Read(buf)
+		close(upstreamClosed)
+	}()
+
+	// httptest.NewRecorder does not implement http.Hijacker, so the client
+	// upgrade fails after the upstream connection is already established.
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/ws", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	rw := httptest.NewRecorder()
+
+	p.ServeHTTP(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rw.Code)
+	}
+
+	select {
+	case <-upstreamClosed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upstream connection was not closed after client upgrade failure")
+	}
+}
+
 func TestWSProxyServeHTTPSuccess(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	t.Cleanup(func() { _ = clientConn.Close() })
