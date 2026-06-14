@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   test:
-    name: Go tests (fmt/vet/tidy/test)
+    name: Go tests (fmt/vet/tidy/cover)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -24,12 +24,21 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run quality checks + unit tests
+      - name: Run quality checks
         run: |
           make tidy
           make fmt
           make vet
-          make test
+
+      - name: Test with coverage
+        run: go test -race -covermode=atomic -coverprofile=coverage.txt ./...
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.txt
+          fail_ci_if_error: false
 
   docker:
     name: Build & Push Docker image (release only)

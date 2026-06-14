@@ -1,4 +1,4 @@
-[![GitHub release](https://img.shields.io/github/v/release/alcounit/selenosis)](https://github.com/alcounit/selenosis/releases) [![Go Reference](https://pkg.go.dev/badge/github.com/alcounit/selenosis.svg)](https://pkg.go.dev/github.com/alcounit/selenosis/v2) [![Docker Pulls](https://img.shields.io/docker/pulls/alcounit/selenosis.svg)](https://hub.docker.com/r/alcounit/selenosis)
+[![GitHub release](https://img.shields.io/github/v/release/alcounit/selenosis)](https://github.com/alcounit/selenosis/releases) [![Go Reference](https://pkg.go.dev/badge/github.com/alcounit/selenosis.svg)](https://pkg.go.dev/github.com/alcounit/selenosis/v2) [![Docker Pulls](https://img.shields.io/docker/pulls/alcounit/selenosis.svg)](https://hub.docker.com/r/alcounit/selenosis) [![codecov](https://codecov.io/gh/alcounit/selenosis/branch/main/graph/badge.svg)](https://codecov.io/gh/alcounit/selenosis)
 
 # selenosis
 A stateless Selenium hub for Kubernetes that creates a browser resource per session and proxies traffic to it.
@@ -6,6 +6,7 @@ A stateless Selenium hub for Kubernetes that creates a browser resource per sess
 ## Table of Contents
 
 - [What it does](#what-it-does)
+- [Ecosystem](#ecosystem)
 - [Requirements](#requirements)
 - [Configuration](#configuration)
 - [Endpoints](#endpoints)
@@ -35,6 +36,19 @@ A stateless Selenium hub for Kubernetes that creates a browser resource per sess
 - Selenosis exposes Selenium-compatible endpoints on both `/` and `/wd/hub`.
 - Creates a `Browser` resource via `browser-service` based on requested capabilities.
 - Waits for the browser pod to become ready, then proxies traffic to the sidecar `seleniferous` inside that pod.
+
+## Ecosystem
+
+selenosis is the stateless hub of a larger Kubernetes-native platform for running
+ephemeral browser sessions. It is one of several components — to deploy the whole
+stack, use the Helm chart.
+
+- **[selenosis-deploy](https://github.com/alcounit/selenosis-deploy)** — Helm chart that deploys the full stack (CRDs, RBAC, all services, ingress). Start here.
+- **[selenosis](https://github.com/alcounit/selenosis)** (this repo) — stateless Selenium/Playwright/MCP hub; creates `Browser` resources and proxies session traffic.
+- **[seleniferous](https://github.com/alcounit/seleniferous)** — sidecar proxy inside each browser pod; manages session lifecycle and routing.
+- **[browser-controller](https://github.com/alcounit/browser-controller)** — Kubernetes operator that reconciles `Browser` and `BrowserConfig` CRDs into pods.
+- **[browser-service](https://github.com/alcounit/browser-service)** — REST + SSE facade over `Browser` resources.
+- **[browser-ui](https://github.com/alcounit/browser-ui)** — web dashboard with live session view and VNC viewer.
 
 ## Requirements
 - Kubernetes cluster.
@@ -541,4 +555,12 @@ The build process is controlled via the following Makefile variables:
 
 ## Deployment
 
-Helm chart [selenosis-deploy](https://github.com/alcounit/selenosis-deploy)
+The full stack — CRDs, RBAC, all services, and ingress — is deployed with the
+[selenosis-deploy](https://github.com/alcounit/selenosis-deploy) Helm chart:
+
+```bash
+helm install selenosis .
+```
+
+See the chart's `values.yaml` for image versions, service types, ingress, session
+timeouts, and authentication settings.

@@ -1,0 +1,8 @@
+ignore:
+  - "cmd/**"
+
+coverage:
+  status:
+    project:
+      default:
+        informational: true
