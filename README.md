@@ -88,7 +88,7 @@ released independently.
 | **[selenosis](https://github.com/alcounit/selenosis)** (this repo) | Stateless Selenium / Playwright / MCP hub. Requests browser sessions through browser-service and proxies session traffic. |
 | **[seleniferous](https://github.com/alcounit/seleniferous)** | Sidecar proxy inside each browser pod. Manages session lifecycle, idle timeouts, and routing. |
 | **[browser-controller](https://github.com/alcounit/browser-controller)** | Kubernetes operator that reconciles `Browser` and `BrowserConfig` CRDs into pods, with deterministic cleanup. |
-| **[browser-service](https://github.com/alcounit/browser-service)** | REST + server-sent-events facade over `Browser` resources. |
+| **[browser-service](https://github.com/alcounit/browser-service)** | REST + SSE facade over `Browser` and `BrowserConfig` resources. |
 | **[browser-ui](https://github.com/alcounit/browser-ui)** | Web dashboard with a live session list and an in-browser VNC viewer. |
 | **[selenosis-deploy](https://github.com/alcounit/selenosis-deploy)** | Helm chart that deploys the whole stack — CRDs, RBAC, all services, ingress. **Start here.** |
 
