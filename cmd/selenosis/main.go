@@ -20,6 +20,30 @@ import (
 	"github.com/rs/zerolog"
 )
 
+func requestContextMiddleware(logger zerolog.Logger, hostname string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		fn := func(rw http.ResponseWriter, req *http.Request) {
+
+			reqId := uuid.NewString()
+
+			l := logger.With().
+				Str("method", req.Method).
+				Str("path", req.URL.Path).
+				Str("reqId", reqId).
+				Str("hostname", hostname).
+				Logger()
+
+			req.Header.Add("X-Selenosis-Request-ID", reqId)
+			req.Header.Set("X-Selenosis-Hostname", hostname)
+			ctx := req.Context()
+			ctx = logctx.IntoContext(ctx, l)
+
+			next.ServeHTTP(rw, req.WithContext(ctx))
+		}
+		return http.HandlerFunc(fn)
+	}
+}
+
 func main() {
 
 	zerolog.TimeFieldFormat = time.RFC3339
@@ -51,26 +75,14 @@ func main() {
 
 	svc := service.NewService(client, cfg)
 
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to resolve hostname, using fallback")
+		hostname = "unknown"
+	}
+
 	router := chi.NewRouter()
-	router.Use(func(next http.Handler) http.Handler {
-		fn := func(rw http.ResponseWriter, req *http.Request) {
-
-			reqId := uuid.NewString()
-
-			logger := log.With().
-				Str("method", req.Method).
-				Str("path", req.URL.Path).
-				Str("reqId", reqId).
-				Logger()
-
-			req.Header.Add("Selenosis-Request-ID", reqId)
-			ctx := req.Context()
-			ctx = logctx.IntoContext(ctx, logger)
-
-			next.ServeHTTP(rw, req.WithContext(ctx))
-		}
-		return http.HandlerFunc(fn)
-	})
+	router.Use(requestContextMiddleware(log, hostname))
 
 	router.Use(basicAuthMiddleware(authStore, log))
 
