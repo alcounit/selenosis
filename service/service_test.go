@@ -1060,11 +1060,52 @@ func TestCreateBrowserSetOptionsError(t *testing.T) {
 	rw := httptest.NewRecorder()
 
 	opts := map[string]any{"bad": make(chan int)}
-	if _, _, ok := svc.createBrowser(rw, req, "chromium", "123", opts, writeMcpWaitError); ok {
+	if _, _, _, ok := svc.createBrowser(rw, req, "chromium", "123", opts, writeMcpWaitError); ok {
 		t.Fatal("expected createBrowser to fail on unmarshalable options")
 	}
 	if rw.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", rw.Code)
+	}
+}
+
+func TestCreateBrowserReturnsBrowserNameAndSessionUUID(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{
+		Browser: &browserv1.Browser{
+			Status: browserv1.BrowserStatus{Phase: "Running", PodIP: "127.0.0.1"},
+		},
+	}
+	cc := &captureClient{fakeClient: fakeClient{stream: stream}}
+	svc := NewService(cc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
+	req := httptest.NewRequest(http.MethodPost, "/session", nil)
+	rw := httptest.NewRecorder()
+
+	podIP, browserName, sessionUUID, ok := svc.createBrowser(rw, req, "chromium", "123", nil, writeCreateSessionWaitError)
+	if !ok {
+		t.Fatalf("expected createBrowser to succeed, status=%d", rw.Code)
+	}
+	if podIP != "127.0.0.1" {
+		t.Errorf("podIP = %q, want 127.0.0.1", podIP)
+	}
+	if cc.created == nil {
+		t.Fatal("expected browser to be created")
+	}
+	if browserName == "" {
+		t.Error("browserName is empty, want generated CR name")
+	}
+	if browserName != cc.created.GetName() {
+		t.Errorf("browserName = %q, want CR name %q", browserName, cc.created.GetName())
+	}
+
+	wantUUID, err := ipuuid.IPToUUID(net.ParseIP("127.0.0.1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sessionUUID != wantUUID {
+		t.Errorf("sessionUUID = %s, want ipuuid of pod IP %s", sessionUUID, wantUUID)
+	}
+	if browserName == sessionUUID.String() {
+		t.Error("browserName (CR name) must not equal sessionUUID (pod-IP encoding)")
 	}
 }
 

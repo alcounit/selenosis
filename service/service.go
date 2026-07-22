@@ -106,12 +106,18 @@ func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	opts := processed.GetSelenosisOptions()
-	podIP, _, ok := s.createBrowser(rw, req, processed.GetBrowserName(), processed.GetBrowserVersion(), opts, writeCreateSessionWaitError)
+	podIP, browserHostname, _, ok := s.createBrowser(rw, req, processed.GetBrowserName(), processed.GetBrowserVersion(), opts, writeCreateSessionWaitError)
 	if !ok {
 		return
 	}
 
-	log.Info().Str("ip", podIP).Msg("proxying session create request")
+	log = log.With().
+		Dict("Browser", zerolog.Dict().
+			Str("ip", podIP).
+			Str("hostname", browserHostname)).
+		Logger()
+
+	log.Info().Msg("proxying session create request")
 
 	reqModifier := func(r *http.Request) {
 		r.Header.Set("X-Selenosis-External-URL", externalBaseURL(req).String())
@@ -126,7 +132,6 @@ func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
 		r.ContentLength = int64(len(body))
 
 		log.Info().
-			Str("ip", podIP).
 			Msg("session create request modified")
 	}
 
@@ -146,16 +151,23 @@ func (s *Service) ProxySession(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ip, err := parseSessionID(sessionId)
+	podIp, err := parseSessionID(sessionId)
 	if err != nil {
 		log.Error().Msg("invalid url param: sessionId")
 		writeErrorResponse(rw, http.StatusBadRequest, selenium.ErrInvalidArgument(errors.ErrUnsupported))
 		return
 	}
 
-	log.Info().Str("sessionId", sessionId).Str("ip", ip.String()).Msg("proxying session request")
+	log = log.With().
+		Dict("Browser", zerolog.Dict().
+			Str("ip", podIp.String())).
+		Str("sessionId", sessionId).
+		Logger()
 
-	host := s.sidecarHost(ip.String())
+	log.Info().
+		Msg("proxying session request")
+
+	host := s.sidecarHost(podIp.String())
 	if proxy.IsWebSocketRequest(req) {
 		resolver := func(r *http.Request) (*url.URL, error) {
 			url := &url.URL{
@@ -168,10 +180,7 @@ func (s *Service) ProxySession(rw http.ResponseWriter, req *http.Request) {
 			return url, nil
 		}
 
-		log.Info().
-			Str("sessionId", sessionId).
-			Str("ip", ip.String()).
-			Msg("proxying websocket request")
+		log.Info().Msg("proxying websocket request")
 
 		rp := proxy.NewWebSocketReverseProxy(resolver)
 		rp.ServeHTTP(rw, req)
@@ -187,7 +196,7 @@ func (s *Service) ProxySession(rw http.ResponseWriter, req *http.Request) {
 		}
 		r.Host = req.Host
 
-		log.Info().Str("sessionId", sessionId).Str("ip", ip.String()).Msg("session proxy request modified")
+		log.Info().Msg("session proxy request modified")
 	}
 
 	rp := proxy.NewHTTPReverseProxy(
@@ -234,7 +243,7 @@ func (s *Service) Playwright(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	podIP, sessionUUID, ok := s.createBrowser(rw, req, name, version, opts, writePlaywrightWaitError)
+	podIP, browserHostname, sessionUUID, ok := s.createBrowser(rw, req, name, version, opts, writePlaywrightWaitError)
 	if !ok {
 		return
 	}
@@ -253,7 +262,11 @@ func (s *Service) Playwright(rw http.ResponseWriter, req *http.Request) {
 		return url, nil
 	}
 
-	log.Info().Str("ip", podIP).Msg("proxying playwright request")
+	log.Info().
+		Dict("Browser", zerolog.Dict().
+			Str("ip", podIP).
+			Str("hostname", browserHostname)).
+		Msg("proxying playwright request")
 
 	rp := proxy.NewWebSocketReverseProxy(resolver)
 	rp.ServeHTTP(rw, req)
@@ -276,19 +289,25 @@ func (s *Service) RouteHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ip, err := parseSessionID(sessionId)
+	podIp, err := parseSessionID(sessionId)
 	if err != nil {
 		log.Error().Msg("invalid url param: sessionId")
 		http.Error(rw, "invalid url param: sessionId", http.StatusBadRequest)
 		return
 	}
 
+	log = log.With().
+		Dict("Browser", zerolog.Dict().
+			Str("ip", podIp.String())).
+		Str("sessionId", sessionId).
+		Logger()
+
 	reqModifier := func(r *http.Request) {
 		r.URL.Scheme = "http"
-		r.URL.Host = s.sidecarHost(ip.String())
+		r.URL.Host = s.sidecarHost(podIp.String())
 		r.URL.Path = path.Clean(req.URL.Path)
 
-		log.Info().Str("sessionId", sessionId).Str("ip", ip.String()).Msg("http proxy request modified")
+		log.Info().Msg("http proxy request modified")
 	}
 
 	log.Info().Msg("proxying http proxy request")
@@ -321,14 +340,18 @@ func (s *Service) McpHandler(rw http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		podIP, _, ok := s.createBrowser(rw, req, name, version, selenosisOpts, writeMcpWaitError)
+		podIP, browserHostname, _, ok := s.createBrowser(rw, req, name, version, selenosisOpts, writeMcpWaitError)
 		if !ok {
 			return
 		}
 
 		host := s.sidecarHost(podIP)
 
-		log.Info().Str("ip", podIP).Msg("proxying mcp initialize request")
+		log.Info().
+			Dict("Browser", zerolog.Dict().
+				Str("ip", podIP).
+				Str("hostname", browserHostname)).
+			Msg("proxying mcp initialize request")
 
 		reqModifier := func(r *http.Request) {
 			r.URL = &url.URL{
@@ -354,16 +377,19 @@ func (s *Service) McpHandler(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ip, err := parseSessionID(sessionId)
+	podIp, err := parseSessionID(sessionId)
 	if err != nil {
 		log.Error().Str("mcpSessionId", sessionId).Msg("invalid Mcp-Session-Id")
 		jsonrpc.WriteError(rw, http.StatusBadRequest, jsonrpc.InvalidParams, "Bad Request: invalid Mcp-Session-Id")
 		return
 	}
 
-	host := s.sidecarHost(ip.String())
+	host := s.sidecarHost(podIp.String())
 
-	log.Info().Str("ip", ip.String()).Msg("proxying mcp request")
+	log.Info().Dict("Browser", zerolog.Dict().
+		Str("ip", podIp.String())).
+		Str("sessionId", sessionId).
+		Msg("proxying mcp request")
 
 	reqModifier := func(r *http.Request) {
 		r.URL = &url.URL{
@@ -377,17 +403,19 @@ func (s *Service) McpHandler(rw http.ResponseWriter, req *http.Request) {
 
 	rp := proxy.NewHTTPReverseProxy(
 		proxy.WithRequestModifier(reqModifier),
-		proxy.WithErrorHandler(mcpProxyErrorHandler(log, ip.String())),
+		proxy.WithErrorHandler(mcpProxyErrorHandler(log, podIp.String())),
 	)
 	rp.ServeHTTP(rw, req)
 }
 
-func (s *Service) createBrowser(rw http.ResponseWriter, req *http.Request, name, version string, opts map[string]any, writeWaitError func(http.ResponseWriter, *browserError)) (string, uuid.UUID, bool) {
+func (s *Service) createBrowser(rw http.ResponseWriter, req *http.Request, name, version string, opts map[string]any, writeWaitError func(http.ResponseWriter, *browserError)) (string, string, uuid.UUID, bool) {
 	log := logctx.FromContext(req.Context())
+
+	hostname := uuid.NewString()
 
 	template := &browserv1.Browser{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: uuid.NewString(),
+			Name: hostname,
 		},
 		Spec: browserv1.BrowserSpec{
 			BrowserName:    name,
@@ -401,101 +429,101 @@ func (s *Service) createBrowser(rw http.ResponseWriter, req *http.Request, name,
 		if err != nil {
 			log.Err(err).Msg("failed to set selenosis options annotation")
 			http.Error(rw, err.Error(), http.StatusBadRequest)
-			return "", uuid.UUID{}, false
+			return "", "", uuid.UUID{}, false
 		}
 	}
 
 	setOwnerReference(req.Context(), template)
+	setHubLabel(req, template)
 
 	log = log.With().
-		Str("browserName", template.Spec.BrowserName).
-		Str("browserVersion", template.Spec.BrowserVersion).
-		Str("namespace", s.config.Namespace).
+		Dict("Browser", zerolog.Dict().
+			Str("hostname", hostname).
+			Str("type", template.Spec.BrowserName).
+			Str("version", template.Spec.BrowserVersion)).
 		Logger()
 
 	ctx, cancel := context.WithTimeout(req.Context(), s.config.BrowserStartTimeout)
 	defer cancel()
 
-	_, podIP, waitErr := s.createBrowserAndWait(ctx, log, template)
+	podIP, waitErr := s.createBrowserAndWait(ctx, log, template)
 	if waitErr != nil {
 		writeWaitError(rw, waitErr)
-		return "", uuid.UUID{}, false
+		return "", "", uuid.UUID{}, false
 	}
 
-	ip := net.ParseIP(podIP)
-	if ip == nil {
+	podIp := net.ParseIP(podIP)
+	if podIp == nil {
 		log.Err(fmt.Errorf("invalid pod IP: %s", podIP)).Msg("failed to parse pod IP")
 		http.Error(rw, "failed to get browser IP", http.StatusInternalServerError)
-		return "", uuid.UUID{}, false
+		return "", "", uuid.UUID{}, false
 	}
 
-	sessionUUID, err := ipuuid.IPToUUID(ip)
+	sessionUUID, err := ipuuid.IPToUUID(podIp)
 	if err != nil {
 		log.Err(err).Str("podIP", podIP).Msg("failed to convert IP to UUID")
 		http.Error(rw, "failed to convert IP to UUID", http.StatusInternalServerError)
-		return "", uuid.UUID{}, false
+		return "", "", uuid.UUID{}, false
 	}
 
-	return podIP, sessionUUID, true
+	return podIP, hostname, sessionUUID, true
 }
 
-func (s *Service) createBrowserAndWait(ctx context.Context, logger zerolog.Logger, template *browserv1.Browser) (string, string, *browserError) {
+func (s *Service) createBrowserAndWait(ctx context.Context, logger zerolog.Logger, template *browserv1.Browser) (string, *browserError) {
 	logger.Info().Msg("creating browser resource")
 
 	stream, err := s.client.Events(ctx, s.config.Namespace, browserclient.WithName(template.GetName()))
 	if err != nil {
-		logger.Err(err).Str("name", template.GetName()).Msg("failed to start browser event stream")
-		return template.GetName(), "", &browserError{kind: browserEventsStart, err: err}
+		logger.Err(err).Msg("failed to start browser event stream")
+		return "", &browserError{kind: browserEventsStart, err: err}
 	}
 	defer stream.Close()
 
-	result, err := s.client.Create(ctx, s.config.Namespace, template)
-	if err != nil {
+	if _, err := s.client.Create(ctx, s.config.Namespace, template); err != nil {
 		logger.Err(err).Msg("failed to create browser resource")
-		return "", "", &browserError{kind: browserCreate, err: err}
+		return "", &browserError{kind: browserCreate, err: err}
 	}
 
-	browserName := result.GetName()
-	logger.Info().Str("name", browserName).Msg("waiting for browser to become ready")
+	logger.Info().Msg("waiting for browser to become ready")
 
 	for {
 		select {
 		case event, ok := <-stream.Events():
 			if !ok {
-				logger.Error().Str("name", browserName).Msg("browser event stream closed unexpectedly")
-				return browserName, "", &browserError{kind: browserStreamClosed}
+				logger.Error().Msg("browser event stream closed unexpectedly")
+				return "", &browserError{kind: browserStreamClosed}
 			}
 
 			if event.Browser == nil {
-				logger.Warn().Str("name", browserName).Msg("received browser event with nil browser")
+				logger.Warn().Msg("received browser event with nil browser")
 				continue
 			}
 
 			switch event.Browser.Status.Phase {
 			case "Failed":
-				logger.Error().Str("name", browserName).Str("statusReason", event.Browser.Status.Reason).Msg("browser failed to start")
-				return browserName, "", &browserError{kind: browserFailed}
+				logger.Error().Str("statusReason", event.Browser.Status.Reason).Msg("browser failed to start")
+				return "", &browserError{kind: browserFailed}
 
 			case "Running":
 				podIP := event.Browser.Status.PodIP
-				logger.Info().Str("name", browserName).Msg("browser successfully started")
-				return browserName, podIP, nil
+				logger.Info().Msg("browser successfully started")
+				return podIP, nil
 			}
 
 		case err, ok := <-stream.Errors():
 			if !ok {
-				logger.Error().Str("name", browserName).Msg("browser error stream closed unexpectedly")
-				return browserName, "", &browserError{kind: browserStreamClosed}
+				logger.Error().Msg("browser error stream closed unexpectedly")
+				return "", &browserError{kind: browserStreamClosed}
 			}
 
 			if err != nil {
-				logger.Err(err).Str("name", browserName).Msg("browser event stream error")
-				return browserName, "", &browserError{kind: browserStreamError, err: err}
+				logger.Err(err).Msg("browser event stream error")
+				return "", &browserError{kind: browserStreamError, err: err}
 			}
 
 		case <-ctx.Done():
-			logger.Info().Str("name", browserName).Msg("context cancelled, stopping browser event stream")
-			return browserName, "", &browserError{kind: browserContextDone}
+			logger.Info().Msg("context cancelled, stopping browser event stream")
+			return "", &browserError{kind: browserContextDone}
 		}
 	}
 }
@@ -541,4 +569,17 @@ func externalBaseURL(r *http.Request) *url.URL {
 		Scheme: proto,
 		Host:   host,
 	}
+}
+
+func setHubLabel(req *http.Request, template *browserv1.Browser) {
+	hostname := req.Header.Get("X-Selenosis-Hostname")
+	if hostname == "" {
+		return
+	}
+
+	if template.ObjectMeta.Labels == nil {
+		template.ObjectMeta.Labels = map[string]string{}
+	}
+
+	template.ObjectMeta.Labels[browserv1.SelenosisHubLabelKey] = hostname
 }

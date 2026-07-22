@@ -9,7 +9,6 @@ holds nothing — Kubernetes is the source of truth.
 [![Docker Pulls](https://img.shields.io/docker/pulls/alcounit/selenosis.svg)](https://hub.docker.com/r/alcounit/selenosis)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/selenosis)](https://artifacthub.io/packages/search?repo=selenosis)
 [![codecov](https://codecov.io/gh/alcounit/selenosis/branch/main/graph/badge.svg)](https://codecov.io/gh/alcounit/selenosis)
-[![Go Report Card](https://goreportcard.com/badge/github.com/alcounit/selenosis/v2)](https://goreportcard.com/report/github.com/alcounit/selenosis/v2)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 
 <p align="center">
