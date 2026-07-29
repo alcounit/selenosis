@@ -70,7 +70,7 @@ jobs:
         env:
           REGISTRY: ${{ secrets.REGISTRY }}
           VERSION: ${{ steps.meta.outputs.version }}
-          PLATFORM: linux/amd64
+          PLATFORM: linux/amd64,linux/arm64
           EXTRA_TAGS: -t ${{ secrets.REGISTRY }}/selenosis:latest
         run: |
           make deploy
