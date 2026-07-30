@@ -255,6 +255,147 @@ func TestCreateSessionSuccess(t *testing.T) {
 	}
 }
 
+func TestCreateSessionRetriesUnreachableSidecar(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{
+		Browser: &browserv1.Browser{
+			Status: browserv1.BrowserStatus{
+				Phase: "Running",
+				PodIP: "127.0.0.1",
+			},
+		},
+	}
+
+	fc := &fakeClient{
+		stream: stream,
+		createResult: &browserv1.Browser{
+			ObjectMeta: browserv1.Browser{}.ObjectMeta,
+		},
+	}
+
+	var attempts int
+	var lastBody string
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Errorf("failed to read proxied body on attempt %d: %v", attempts, err)
+		}
+		lastBody = string(body)
+
+		// The sidecar has not bound its port yet on the first two attempts.
+		if attempts < 3 {
+			return nil, dialErr()
+		}
+		return response(http.StatusOK, `{"value":{"sessionId":"orig"}}`), nil
+	})
+
+	setTestTransport(t, rt)
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
+	req.Host = "example.com"
+	rw := httptest.NewRecorder()
+
+	svc.CreateSession(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rw.Code)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts, got %d", attempts)
+	}
+	// The request body has to survive a retry, not just the first attempt.
+	if lastBody != validCapsBody() {
+		t.Fatalf("unexpected body on retried attempt: %s", lastBody)
+	}
+}
+
+func TestCreateSessionDoesNotRetryOtherProxyErrors(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{
+		Browser: &browserv1.Browser{
+			Status: browserv1.BrowserStatus{
+				Phase: "Running",
+				PodIP: "127.0.0.1",
+			},
+		},
+	}
+
+	fc := &fakeClient{
+		stream: stream,
+		createResult: &browserv1.Browser{
+			ObjectMeta: browserv1.Browser{}.ObjectMeta,
+		},
+	}
+
+	var attempts int
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		return nil, errors.New("boom")
+	})
+
+	setTestTransport(t, rt)
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
+	rw := httptest.NewRecorder()
+
+	svc.CreateSession(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if attempts != 1 {
+		t.Fatalf("expected no retry for a non-dial error, got %d attempts", attempts)
+	}
+}
+
+func TestCreateSessionUnreachableSidecarGivesUpWhenContextExpires(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{
+		Browser: &browserv1.Browser{
+			Status: browserv1.BrowserStatus{
+				Phase: "Running",
+				PodIP: "127.0.0.1",
+			},
+		},
+	}
+
+	fc := &fakeClient{
+		stream: stream,
+		createResult: &browserv1.Browser{
+			ObjectMeta: browserv1.Browser{}.ObjectMeta,
+		},
+	}
+
+	var attempts int
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		return nil, dialErr()
+	})
+
+	setTestTransport(t, rt)
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
+
+	// The retry budget is bounded by the caller's context as well as by
+	// sidecarConnectTimeout, so a client that gives up stops the loop.
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
+	req = req.WithContext(ctx)
+	rw := httptest.NewRecorder()
+
+	svc.CreateSession(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if attempts < 2 {
+		t.Fatalf("expected the dial to be retried at least once, got %d attempts", attempts)
+	}
+}
+
 func TestCreateSessionUsesBrowserNameFilter(t *testing.T) {
 	stream := newFakeStream()
 	stream.events <- &event.BrowserEvent{

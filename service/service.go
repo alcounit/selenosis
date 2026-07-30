@@ -41,6 +41,19 @@ const (
 	wdHubPrefix        = "/wd/hub"
 )
 
+// Retry budget for reaching a freshly started browser pod's sidecar.
+//
+// A Browser reaching phase Running does not mean its containers are ready: the
+// phase is a copy of the pod phase, and corev1.PodRunning only means the pod is
+// bound to a node and its containers have been created. The sidecar binds its
+// port a moment after that, so the first connection attempt can be refused even
+// though the browser is seconds away from serving. See serveWithSidecarRetry.
+const (
+	sidecarConnectTimeout    = 30 * time.Second
+	sidecarRetryInitialDelay = 50 * time.Millisecond
+	sidecarRetryMaxDelay     = 500 * time.Millisecond
+)
+
 type Service struct {
 	client browserclient.Client
 	config ServiceConfig
@@ -135,11 +148,66 @@ func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
 			Msg("session create request modified")
 	}
 
-	rp := proxy.NewHTTPReverseProxy(
-		proxy.WithRequestModifier(reqModifier),
-		proxy.WithErrorHandler(createSessionProxyErrorHandler(log, podIP)),
-	)
-	rp.ServeHTTP(rw, req)
+	ctx, cancel := context.WithTimeout(req.Context(), sidecarConnectTimeout)
+	defer cancel()
+
+	if err := serveWithSidecarRetry(ctx, log, rw, req, proxy.WithRequestModifier(reqModifier)); err != nil {
+		createSessionProxyErrorHandler(log, podIP)(rw, req, err)
+	}
+}
+
+// serveWithSidecarRetry proxies req through a reverse proxy built from opts and
+// retries for as long as the upstream refuses the connection and ctx allows.
+//
+// Without this, a session create is proxied to the browser pod the instant its
+// Browser resource reports phase Running - which is only "containers created",
+// not "containers ready" (see the sidecar* constants above). The sidecar usually
+// wins that race, but when the pod lands on a node that has just joined the
+// cluster it can lose it by a second or two, and the session then fails with
+// "dial tcp <podIP>:<port>: connect: connection refused" even though the browser
+// comes up healthy immediately afterwards.
+//
+// Retrying is safe here: the caller's request modifier rebuilds the outbound
+// body from a buffer on every attempt, and nothing is written to rw until an
+// attempt reaches the upstream - the error handler passed to the proxy only
+// records the failure. On success, or on any error that is not a failure to
+// connect, this returns immediately.
+func serveWithSidecarRetry(ctx context.Context, log zerolog.Logger, rw http.ResponseWriter, req *http.Request, opts ...proxy.HTTPReverseProxyOptions) error {
+	var proxyErr error
+
+	opts = append(opts, proxy.WithErrorHandler(func(_ http.ResponseWriter, _ *http.Request, err error) {
+		proxyErr = err
+	}))
+	rp := proxy.NewHTTPReverseProxy(opts...)
+
+	delay := sidecarRetryInitialDelay
+
+	for attempt := 1; ; attempt++ {
+		proxyErr = nil
+		rp.ServeHTTP(rw, req)
+
+		if proxyErr == nil {
+			if attempt > 1 {
+				log.Info().Int("attempts", attempt).Msg("sidecar reachable after retry")
+			}
+			return nil
+		}
+
+		if !isUpstreamUnreachable(proxyErr) {
+			return proxyErr
+		}
+
+		log.Debug().Err(proxyErr).Int("attempt", attempt).Dur("retryIn", delay).
+			Msg("sidecar not accepting connections yet, retrying")
+
+		select {
+		case <-ctx.Done():
+			return proxyErr
+		case <-time.After(delay):
+		}
+
+		delay = min(delay*2, sidecarRetryMaxDelay)
+	}
 }
 
 func (s *Service) ProxySession(rw http.ResponseWriter, req *http.Request) {
