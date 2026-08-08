@@ -2,9 +2,14 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"sort"
+	"strings"
+	"time"
 
+	browserv1 "github.com/alcounit/browser-controller/apis/browser/v1"
 	"github.com/alcounit/selenosis/v2/pkg/jsonrpc"
 	"github.com/alcounit/selenosis/v2/pkg/proxy"
 	"github.com/alcounit/selenosis/v2/pkg/selenium"
@@ -71,6 +76,14 @@ type browserError struct {
 	err  error
 }
 
+func (e *browserError) reason() error {
+	if e.err != nil {
+		return e.err
+	}
+
+	return ErrInternal
+}
+
 func writeCreateSessionWaitError(rw http.ResponseWriter, waitErr *browserError) {
 	switch waitErr.kind {
 	case browserCreate:
@@ -80,7 +93,9 @@ func writeCreateSessionWaitError(rw http.ResponseWriter, waitErr *browserError) 
 	case browserStreamClosed:
 		writeErrorResponse(rw, http.StatusInternalServerError, selenium.ErrUnknown(ErrInternal))
 	case browserFailed:
-		writeErrorResponse(rw, http.StatusInternalServerError, selenium.Error("browser failed to start", ErrInternal))
+		writeErrorResponse(rw, http.StatusInternalServerError, selenium.Error("browser failed to start", waitErr.reason()))
+	case browserNotReady:
+		writeErrorResponse(rw, http.StatusInternalServerError, selenium.ErrUnknown(waitErr.reason()))
 	case browserStreamError:
 		writeErrorResponse(rw, http.StatusInternalServerError, selenium.ErrUnknown(waitErr.err))
 	case browserContextDone:
@@ -99,7 +114,9 @@ func writePlaywrightWaitError(rw http.ResponseWriter, waitErr *browserError) {
 	case browserStreamClosed:
 		http.Error(rw, "browser event stream closed unexpectedly", http.StatusInternalServerError)
 	case browserFailed:
-		http.Error(rw, "browser failed to start", http.StatusInternalServerError)
+		http.Error(rw, fmt.Sprintf("browser failed to start: %s", waitErr.reason()), http.StatusInternalServerError)
+	case browserNotReady:
+		http.Error(rw, waitErr.reason().Error(), http.StatusInternalServerError)
 	case browserStreamError:
 		http.Error(rw, "browser event stream error", http.StatusInternalServerError)
 	case browserContextDone:
@@ -118,7 +135,9 @@ func writeMcpWaitError(rw http.ResponseWriter, waitErr *browserError) {
 	case browserStreamClosed:
 		jsonrpc.WriteError(rw, http.StatusInternalServerError, jsonrpc.InternalError, "Internal error: browser event stream closed unexpectedly")
 	case browserFailed:
-		jsonrpc.WriteError(rw, http.StatusInternalServerError, jsonrpc.InternalError, "Internal error: browser failed to start")
+		jsonrpc.WriteError(rw, http.StatusInternalServerError, jsonrpc.InternalError, fmt.Sprintf("Internal error: browser failed to start: %s", waitErr.reason()))
+	case browserNotReady:
+		jsonrpc.WriteError(rw, http.StatusInternalServerError, jsonrpc.InternalError, fmt.Sprintf("Internal error: %s", waitErr.reason()))
 	case browserStreamError:
 		jsonrpc.WriteError(rw, http.StatusInternalServerError, jsonrpc.InternalError, "Internal error: browser event stream error")
 	case browserContextDone:
@@ -126,4 +145,43 @@ func writeMcpWaitError(rw http.ResponseWriter, waitErr *browserError) {
 	default:
 		jsonrpc.WriteError(rw, http.StatusInternalServerError, jsonrpc.InternalError, "Internal error")
 	}
+}
+
+func browserFailure(browser *browserv1.Browser) error {
+	if msg := strings.TrimSpace(browser.Status.Message); msg != "" {
+		return errors.New(msg)
+	}
+
+	if reason := strings.TrimSpace(browser.Status.Reason); reason != "" {
+		return errors.New(reason)
+	}
+
+	return ErrInternal
+}
+
+func notReadyError(browser *browserv1.Browser, timeout time.Duration) error {
+	if browser == nil {
+		return fmt.Errorf("browser did not become ready in %v (no status received)", timeout)
+	}
+
+	waiting := make([]string, 0, len(browser.Status.ContainerStatuses))
+	for _, cs := range browser.Status.ContainerStatuses {
+		if cs.State.Waiting == nil {
+			continue
+		}
+
+		reason := cs.State.Waiting.Reason
+		if reason == "" {
+			reason = "Waiting"
+		}
+		waiting = append(waiting, fmt.Sprintf("%s: %s", cs.Name, reason))
+	}
+
+	if len(waiting) == 0 {
+		return fmt.Errorf("browser did not become ready in %v (phase %s)", timeout, browser.Status.Phase)
+	}
+
+	sort.Strings(waiting)
+
+	return fmt.Errorf("browser did not become ready in %v (%s)", timeout, strings.Join(waiting, ", "))
 }

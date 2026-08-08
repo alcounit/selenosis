@@ -39,6 +39,11 @@ var (
 const (
 	maxRequestBodySize = 1 << 20 // 1 MB
 	wdHubPrefix        = "/wd/hub"
+
+	defaultRetryInitialDelay = 100 * time.Millisecond
+	defaultRetryMaxDelay     = 500 * time.Millisecond
+
+	sidecarContainerName = "seleniferous"
 )
 
 type Service struct {
@@ -47,9 +52,10 @@ type Service struct {
 }
 
 type ServiceConfig struct {
-	Namespace           string
-	SidecarPort         string
-	BrowserStartTimeout time.Duration
+	Namespace            string
+	SidecarPort          string
+	BrowserStartTimeout  time.Duration
+	SessionCreateTimeout time.Duration
 }
 
 type errorKind int
@@ -59,6 +65,7 @@ const (
 	browserEventsStart
 	browserStreamClosed
 	browserFailed
+	browserNotReady
 	browserStreamError
 	browserContextDone
 )
@@ -129,6 +136,9 @@ func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
 		r.Method = req.Method
 		r.Host = r.URL.Host
 		r.Body = io.NopCloser(bytes.NewReader(body))
+		r.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(body)), nil
+		}
 		r.ContentLength = int64(len(body))
 
 		log.Info().
@@ -136,6 +146,11 @@ func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	rp := proxy.NewHTTPReverseProxy(
+		proxy.WithHTTPDialRetry(proxy.DialRetry{
+			Timeout:     s.config.SessionCreateTimeout,
+			Interval:    defaultRetryInitialDelay,
+			MaxInterval: defaultRetryMaxDelay,
+		}),
 		proxy.WithRequestModifier(reqModifier),
 		proxy.WithErrorHandler(createSessionProxyErrorHandler(log, podIP)),
 	)
@@ -268,7 +283,13 @@ func (s *Service) Playwright(rw http.ResponseWriter, req *http.Request) {
 			Str("hostname", browserHostname)).
 		Msg("proxying playwright request")
 
-	rp := proxy.NewWebSocketReverseProxy(resolver)
+	rp := proxy.NewWebSocketReverseProxy(resolver,
+		proxy.WithWSDialRetry(proxy.DialRetry{
+			Timeout:     s.config.SessionCreateTimeout,
+			Interval:    defaultRetryInitialDelay,
+			MaxInterval: defaultRetryMaxDelay,
+		}),
+	)
 	rp.ServeHTTP(rw, req)
 }
 
@@ -353,6 +374,16 @@ func (s *Service) McpHandler(rw http.ResponseWriter, req *http.Request) {
 				Str("hostname", browserHostname)).
 			Msg("proxying mcp initialize request")
 
+		var body []byte
+		if req.Body != nil {
+			defer req.Body.Close()
+			if body, err = io.ReadAll(io.LimitReader(req.Body, maxRequestBodySize)); err != nil {
+				log.Err(err).Msg("failed to read request body")
+				jsonrpc.WriteError(rw, http.StatusBadRequest, jsonrpc.InvalidParams, "Bad Request: failed to read body")
+				return
+			}
+		}
+
 		reqModifier := func(r *http.Request) {
 			r.URL = &url.URL{
 				Scheme:   "http",
@@ -361,9 +392,19 @@ func (s *Service) McpHandler(rw http.ResponseWriter, req *http.Request) {
 				RawQuery: req.URL.RawQuery,
 			}
 			r.Host = host
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			r.GetBody = func() (io.ReadCloser, error) {
+				return io.NopCloser(bytes.NewReader(body)), nil
+			}
+			r.ContentLength = int64(len(body))
 		}
 
 		rp := proxy.NewHTTPReverseProxy(
+			proxy.WithHTTPDialRetry(proxy.DialRetry{
+				Timeout:     s.config.SessionCreateTimeout,
+				Interval:    defaultRetryInitialDelay,
+				MaxInterval: defaultRetryMaxDelay,
+			}),
 			proxy.WithRequestModifier(reqModifier),
 			proxy.WithErrorHandler(mcpInitProxyErrorHandler(log, podIP)),
 		)
@@ -486,6 +527,8 @@ func (s *Service) createBrowserAndWait(ctx context.Context, logger zerolog.Logge
 
 	logger.Info().Msg("waiting for browser to become ready")
 
+	var last *browserv1.Browser
+
 	for {
 		select {
 		case event, ok := <-stream.Events():
@@ -499,13 +542,28 @@ func (s *Service) createBrowserAndWait(ctx context.Context, logger zerolog.Logge
 				continue
 			}
 
+			last = event.Browser
+
 			switch event.Browser.Status.Phase {
 			case "Failed":
-				logger.Error().Str("statusReason", event.Browser.Status.Reason).Msg("browser failed to start")
-				return "", &browserError{kind: browserFailed}
+				err := browserFailure(event.Browser)
+				logger.Error().Err(err).
+					Str("statusReason", event.Browser.Status.Reason).
+					Str("statusMessage", event.Browser.Status.Message).
+					Msg("browser failed to start")
+				return "", &browserError{kind: browserFailed, err: err}
 
 			case "Running":
 				podIP := event.Browser.Status.PodIP
+				if podIP == "" {
+					logger.Debug().Msg("browser pod has no IP yet, waiting for next event")
+					continue
+				}
+
+				if !isContainerRunning(event.Browser, sidecarContainerName) {
+					logger.Debug().Msg("seleniferous container is not running yet, waiting for next event")
+					continue
+				}
 				logger.Info().Msg("browser successfully started")
 				return podIP, nil
 			}
@@ -522,7 +580,13 @@ func (s *Service) createBrowserAndWait(ctx context.Context, logger zerolog.Logge
 			}
 
 		case <-ctx.Done():
-			logger.Info().Msg("context cancelled, stopping browser event stream")
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				err := notReadyError(last, s.config.BrowserStartTimeout)
+				logger.Error().Err(err).Msg("browser did not become ready in time")
+				return "", &browserError{kind: browserNotReady, err: err}
+			}
+
+			logger.Info().Msg("client cancelled, stopping browser event stream")
 			return "", &browserError{kind: browserContextDone}
 		}
 	}
@@ -582,4 +646,16 @@ func setHubLabel(req *http.Request, template *browserv1.Browser) {
 	}
 
 	template.ObjectMeta.Labels[browserv1.SelenosisHubLabelKey] = hostname
+}
+
+func isContainerRunning(browser *browserv1.Browser, name string) bool {
+	if browser == nil {
+		return false
+	}
+	for i := range browser.Status.ContainerStatuses {
+		if browser.Status.ContainerStatuses[i].Name == name {
+			return browser.Status.ContainerStatuses[i].State.Running != nil
+		}
+	}
+	return false
 }
