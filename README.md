@@ -74,6 +74,12 @@ managed for you.
 4. Once the pod is ready, selenosis proxies all session traffic to the **seleniferous** sidecar inside it.
 5. When the session ends or times out, the sidecar and controller tear the pod down. Nothing is left behind.
 
+The sidecar is **mandatory** and its container must be named `seleniferous`: the hub waits
+for a container with that exact name to reach `running` before it proxies anything, and it
+never talks to the browser process directly. Every `BrowserConfig` therefore has to declare
+it — see the sidecar block in any of the
+[chart examples](https://github.com/alcounit/selenosis-deploy/tree/main/examples).
+
 ---
 
 ## Ecosystem
@@ -85,7 +91,7 @@ released independently.
 | Component | Role |
 | --- | --- |
 | **[selenosis](https://github.com/alcounit/selenosis)** (this repo) | Stateless Selenium / Playwright / MCP hub. Requests browser sessions through browser-service and proxies session traffic. |
-| **[seleniferous](https://github.com/alcounit/seleniferous)** | Sidecar proxy inside each browser pod. Manages session lifecycle, idle timeouts, and routing. |
+| **[seleniferous](https://github.com/alcounit/seleniferous)** | Sidecar proxy inside each browser pod — **mandatory**, and the container must be named `seleniferous`. Manages session lifecycle, idle timeouts, and routing. |
 | **[browser-controller](https://github.com/alcounit/browser-controller)** | Kubernetes operator that reconciles `Browser` and `BrowserConfig` CRDs into pods, with deterministic cleanup. |
 | **[browser-service](https://github.com/alcounit/browser-service)** | REST + SSE facade over `Browser` and `BrowserConfig` resources. |
 | **[browser-ui](https://github.com/alcounit/browser-ui)** | Web dashboard with a live session list and an in-browser VNC viewer. |
