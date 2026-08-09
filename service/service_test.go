@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -25,8 +26,24 @@ import (
 	"github.com/alcounit/selenosis/v2/pkg/proxy"
 	"github.com/alcounit/selenosis/v2/pkg/selenium"
 	"github.com/go-chi/chi/v5"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+func runningBrowser(podIP string) *browserv1.Browser {
+	return &browserv1.Browser{
+		Status: browserv1.BrowserStatus{
+			Phase: "Running",
+			PodIP: podIP,
+			ContainerStatuses: []browserv1.ContainerStatus{
+				{
+					Name:  sidecarContainerName,
+					State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+				},
+			},
+		},
+	}
+}
 
 func TestCreateSessionNilBody(t *testing.T) {
 	svc := NewService(&fakeClient{}, ServiceConfig{})
@@ -137,7 +154,7 @@ func TestCreateSessionFailedEvent(t *testing.T) {
 
 	svc.CreateSession(rw, req)
 
-	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.Error("browser failed to start", ErrInternal))
+	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.Error("browser failed to start", errors.New("nope")))
 }
 
 func TestCreateSessionEventError(t *testing.T) {
@@ -183,9 +200,7 @@ func TestCreateSessionContextDone(t *testing.T) {
 func TestCreateSessionInvalidPodIP(t *testing.T) {
 	stream := newFakeStream()
 	stream.events <- &event.BrowserEvent{
-		Browser: &browserv1.Browser{
-			Status: browserv1.BrowserStatus{Phase: "Running", PodIP: ""},
-		},
+		Browser: runningBrowser("not-an-ip"),
 	}
 
 	fc := &fakeClient{
@@ -212,12 +227,7 @@ func TestCreateSessionSuccess(t *testing.T) {
 	stream := newFakeStream()
 	stream.events <- &event.BrowserEvent{Browser: nil}
 	stream.events <- &event.BrowserEvent{
-		Browser: &browserv1.Browser{
-			Status: browserv1.BrowserStatus{
-				Phase: "Running",
-				PodIP: "127.0.0.1",
-			},
-		},
+		Browser: runningBrowser("127.0.0.1"),
 	}
 
 	fc := &fakeClient{
@@ -258,12 +268,7 @@ func TestCreateSessionSuccess(t *testing.T) {
 func TestCreateSessionUsesBrowserNameFilter(t *testing.T) {
 	stream := newFakeStream()
 	stream.events <- &event.BrowserEvent{
-		Browser: &browserv1.Browser{
-			Status: browserv1.BrowserStatus{
-				Phase: "Running",
-				PodIP: "127.0.0.1",
-			},
-		},
+		Browser: runningBrowser("127.0.0.1"),
 	}
 
 	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -299,12 +304,7 @@ func TestCreateSessionSelenosisOptionsAnnotation(t *testing.T) {
 	stream := newFakeStream()
 	stream.events <- &event.BrowserEvent{Browser: nil}
 	stream.events <- &event.BrowserEvent{
-		Browser: &browserv1.Browser{
-			Status: browserv1.BrowserStatus{
-				Phase: "Running",
-				PodIP: "127.0.0.1",
-			},
-		},
+		Browser: runningBrowser("127.0.0.1"),
 	}
 
 	var proxiedBody []byte
@@ -683,9 +683,7 @@ func TestPlaywrightContextDone(t *testing.T) {
 func TestPlaywrightInvalidPodIP(t *testing.T) {
 	stream := newFakeStream()
 	stream.events <- &event.BrowserEvent{
-		Browser: &browserv1.Browser{
-			Status: browserv1.BrowserStatus{Phase: "Running", PodIP: ""},
-		},
+		Browser: runningBrowser("not-an-ip"),
 	}
 
 	fc := &fakeClient{
@@ -717,9 +715,7 @@ func TestPlaywrightNilBrowserEventIsIgnored(t *testing.T) {
 	stream := newFakeStream()
 	stream.events <- &event.BrowserEvent{Browser: nil}
 	stream.events <- &event.BrowserEvent{
-		Browser: &browserv1.Browser{
-			Status: browserv1.BrowserStatus{Phase: "Running", PodIP: ""},
-		},
+		Browser: runningBrowser("not-an-ip"),
 	}
 
 	fc := &fakeClient{
@@ -750,9 +746,7 @@ func TestPlaywrightNilBrowserEventIsIgnored(t *testing.T) {
 func TestPlaywrightProxyAttemptAndOwnerLabel(t *testing.T) {
 	stream := newFakeStream()
 	stream.events <- &event.BrowserEvent{
-		Browser: &browserv1.Browser{
-			Status: browserv1.BrowserStatus{Phase: "Running", PodIP: "127.0.0.1"},
-		},
+		Browser: runningBrowser("127.0.0.1"),
 	}
 
 	fc := &captureClient{
@@ -805,11 +799,7 @@ func mcpSessionID(t *testing.T, ip string) string {
 
 func runningStream(podIP string) *fakeStream {
 	stream := newFakeStream()
-	stream.events <- &event.BrowserEvent{
-		Browser: &browserv1.Browser{
-			Status: browserv1.BrowserStatus{Phase: "Running", PodIP: podIP},
-		},
-	}
+	stream.events <- &event.BrowserEvent{Browser: runningBrowser(podIP)}
 	return stream
 }
 
@@ -960,7 +950,7 @@ func TestMcpHandlerInitContextDone(t *testing.T) {
 
 func TestMcpHandlerInitInvalidPodIP(t *testing.T) {
 	fc := &fakeClient{
-		stream:       runningStream(""),
+		stream:       runningStream("not-an-ip"),
 		createResult: &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Name: "br"}},
 	}
 	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
@@ -1071,9 +1061,7 @@ func TestCreateBrowserSetOptionsError(t *testing.T) {
 func TestCreateBrowserReturnsBrowserNameAndSessionUUID(t *testing.T) {
 	stream := newFakeStream()
 	stream.events <- &event.BrowserEvent{
-		Browser: &browserv1.Browser{
-			Status: browserv1.BrowserStatus{Phase: "Running", PodIP: "127.0.0.1"},
-		},
+		Browser: runningBrowser("127.0.0.1"),
 	}
 	cc := &captureClient{fakeClient: fakeClient{stream: stream}}
 	svc := NewService(cc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
@@ -1395,6 +1383,16 @@ func TestWriteCreateSessionWaitError(t *testing.T) {
 			expected: selenium.Error("browser failed to start", ErrInternal),
 		},
 		{
+			name:     "browser failed with reason",
+			waitErr:  &browserError{kind: browserFailed, err: errors.New("ImagePullBackOff")},
+			expected: selenium.Error("browser failed to start", errors.New("ImagePullBackOff")),
+		},
+		{
+			name:     "browser not ready",
+			waitErr:  &browserError{kind: browserNotReady, err: errors.New("not ready in 3m")},
+			expected: selenium.ErrUnknown(errors.New("not ready in 3m")),
+		},
+		{
 			name:     "stream error",
 			waitErr:  &browserError{kind: browserStreamError, err: streamErr},
 			expected: selenium.ErrUnknown(streamErr),
@@ -1443,8 +1441,13 @@ func TestWritePlaywrightWaitError(t *testing.T) {
 		},
 		{
 			name:     "browser failed",
-			waitErr:  &browserError{kind: browserFailed},
-			expected: "browser failed to start",
+			waitErr:  &browserError{kind: browserFailed, err: errors.New("ImagePullBackOff")},
+			expected: "browser failed to start: ImagePullBackOff",
+		},
+		{
+			name:     "browser not ready",
+			waitErr:  &browserError{kind: browserNotReady, err: errors.New("not ready in 3m")},
+			expected: "not ready in 3m",
 		},
 		{
 			name:     "stream error",
@@ -1500,8 +1503,13 @@ func TestWriteMcpWaitError(t *testing.T) {
 		},
 		{
 			name:     "browser failed",
-			waitErr:  &browserError{kind: browserFailed},
-			expected: "browser failed to start",
+			waitErr:  &browserError{kind: browserFailed, err: errors.New("ImagePullBackOff")},
+			expected: "browser failed to start: ImagePullBackOff",
+		},
+		{
+			name:     "browser not ready",
+			waitErr:  &browserError{kind: browserNotReady, err: errors.New("not ready in 3m")},
+			expected: "not ready in 3m",
 		},
 		{
 			name:     "stream error",
@@ -1685,12 +1693,7 @@ func TestCreateSessionConcurrent(t *testing.T) {
 
 			stream := newFakeStream()
 			stream.events <- &event.BrowserEvent{
-				Browser: &browserv1.Browser{
-					Status: browserv1.BrowserStatus{
-						Phase: "Running",
-						PodIP: "127.0.0.1",
-					},
-				},
+				Browser: runningBrowser("127.0.0.1"),
 			}
 
 			fc := &fakeClient{
@@ -1864,4 +1867,439 @@ func TestCreateSessionEventStreamClosed(t *testing.T) {
 	svc.CreateSession(rw, req)
 
 	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.ErrUnknown(ErrInternal))
+}
+
+func browserWithContainerState(podIP string, state corev1.ContainerState) *browserv1.Browser {
+	return &browserv1.Browser{
+		Status: browserv1.BrowserStatus{
+			Phase: "Running",
+			PodIP: podIP,
+			ContainerStatuses: []browserv1.ContainerStatus{
+				{Name: sidecarContainerName, State: state},
+			},
+		},
+	}
+}
+
+func refusedDialErr() error {
+	return &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+}
+
+func TestCreateBrowserWaitsForSeleniferousContainer(t *testing.T) {
+	waiting := corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ContainerCreating"}}
+
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{Browser: browserWithContainerState("127.0.0.1", waiting)}
+	stream.events <- &event.BrowserEvent{Browser: runningBrowser("127.0.0.1")}
+
+	cc := &captureClient{fakeClient: fakeClient{stream: stream}}
+	svc := NewService(cc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
+	req := httptest.NewRequest(http.MethodPost, "/session", nil)
+	rw := httptest.NewRecorder()
+
+	podIP, _, _, ok := svc.createBrowser(rw, req, "chromium", "123", nil, writeCreateSessionWaitError)
+	if !ok {
+		t.Fatalf("expected createBrowser to succeed, status=%d", rw.Code)
+	}
+	if podIP != "127.0.0.1" {
+		t.Fatalf("podIP = %q, want 127.0.0.1", podIP)
+	}
+}
+
+func TestCreateBrowserIgnoresRunningEventWithoutPodIP(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{Browser: runningBrowser("")}
+	stream.events <- &event.BrowserEvent{Browser: runningBrowser("127.0.0.1")}
+
+	cc := &captureClient{fakeClient: fakeClient{stream: stream}}
+	svc := NewService(cc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
+	req := httptest.NewRequest(http.MethodPost, "/session", nil)
+	rw := httptest.NewRecorder()
+
+	podIP, _, _, ok := svc.createBrowser(rw, req, "chromium", "123", nil, writeCreateSessionWaitError)
+	if !ok {
+		t.Fatalf("expected createBrowser to succeed, status=%d", rw.Code)
+	}
+	if podIP != "127.0.0.1" {
+		t.Fatalf("podIP = %q, want 127.0.0.1", podIP)
+	}
+}
+
+func TestCreateBrowserTimesOutWhileSeleniferousNeverRuns(t *testing.T) {
+	waiting := corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ContainerCreating"}}
+
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{Browser: browserWithContainerState("127.0.0.1", waiting)}
+
+	fc := &fakeClient{
+		stream:       stream,
+		createResult: &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Name: "br"}},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: 200 * time.Millisecond})
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
+	rw := httptest.NewRecorder()
+
+	svc.CreateSession(rw, req)
+
+	verifyResponseError(t, rw, http.StatusInternalServerError,
+		selenium.ErrUnknown(errors.New("browser did not become ready in 200ms (seleniferous: ContainerCreating)")))
+}
+
+func TestIsContainerRunning(t *testing.T) {
+	running := corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}
+	waiting := corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{}}
+	terminated := corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{}}
+
+	tests := []struct {
+		name    string
+		browser *browserv1.Browser
+		want    bool
+	}{
+		{"nil browser", nil, false},
+		{"no container statuses", &browserv1.Browser{}, false},
+		{"running", browserWithContainerState("127.0.0.1", running), true},
+		{"waiting", browserWithContainerState("127.0.0.1", waiting), false},
+		{"terminated", browserWithContainerState("127.0.0.1", terminated), false},
+		{
+			"other container only",
+			&browserv1.Browser{
+				Status: browserv1.BrowserStatus{
+					ContainerStatuses: []browserv1.ContainerStatus{
+						{Name: "browser", State: running},
+					},
+				},
+			},
+			false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isContainerRunning(tt.browser, sidecarContainerName); got != tt.want {
+				t.Fatalf("isContainerRunning() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCreateSessionRetriesRefusedSidecar(t *testing.T) {
+	fc := &fakeClient{
+		stream:       runningStream("127.0.0.1"),
+		createResult: &browserv1.Browser{ObjectMeta: browserv1.Browser{}.ObjectMeta},
+	}
+
+	var attempts int
+	var lastBody string
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Errorf("failed to read proxied body on attempt %d: %v", attempts, err)
+		}
+		lastBody = string(body)
+
+		if attempts < 3 {
+			return nil, refusedDialErr()
+		}
+		return response(http.StatusOK, `{"value":{"sessionId":"orig"}}`), nil
+	})
+
+	setTestTransport(t, rt)
+	svc := NewService(fc, ServiceConfig{
+		Namespace:            "ns",
+		SidecarPort:          "4444",
+		BrowserStartTimeout:  time.Second,
+		SessionCreateTimeout: 5 * time.Second,
+	})
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
+	req.Host = "example.com"
+	rw := httptest.NewRecorder()
+
+	svc.CreateSession(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rw.Code)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts, got %d", attempts)
+	}
+	if lastBody != validCapsBody() {
+		t.Fatalf("unexpected body on retried attempt: %s", lastBody)
+	}
+}
+
+func TestCreateSessionDoesNotRetryOtherProxyErrors(t *testing.T) {
+	fc := &fakeClient{
+		stream:       runningStream("127.0.0.1"),
+		createResult: &browserv1.Browser{ObjectMeta: browserv1.Browser{}.ObjectMeta},
+	}
+
+	var attempts int
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		return nil, errors.New("boom")
+	})
+
+	setTestTransport(t, rt)
+	svc := NewService(fc, ServiceConfig{
+		Namespace:            "ns",
+		SidecarPort:          "4444",
+		BrowserStartTimeout:  time.Second,
+		SessionCreateTimeout: 5 * time.Second,
+	})
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
+	rw := httptest.NewRecorder()
+
+	svc.CreateSession(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if attempts != 1 {
+		t.Fatalf("expected no retry for a non-refused error, got %d attempts", attempts)
+	}
+}
+
+func TestCreateSessionGivesUpAtDeadline(t *testing.T) {
+	fc := &fakeClient{
+		stream:       runningStream("127.0.0.1"),
+		createResult: &browserv1.Browser{ObjectMeta: browserv1.Browser{}.ObjectMeta},
+	}
+
+	var attempts int
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		return nil, refusedDialErr()
+	})
+
+	setTestTransport(t, rt)
+	svc := NewService(fc, ServiceConfig{
+		Namespace:            "ns",
+		SidecarPort:          "4444",
+		BrowserStartTimeout:  time.Second,
+		SessionCreateTimeout: 300 * time.Millisecond,
+	})
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
+	rw := httptest.NewRecorder()
+
+	start := time.Now()
+	svc.CreateSession(rw, req)
+	elapsed := time.Since(start)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if attempts < 2 {
+		t.Fatalf("expected the dial to be retried, got %d attempts", attempts)
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("deadline did not stop the loop: took %v", elapsed)
+	}
+}
+
+func TestMcpHandlerInitRetriesRefusedSidecar(t *testing.T) {
+	fc := &fakeClient{
+		stream:       runningStream("127.0.0.1"),
+		createResult: &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Name: "br"}},
+	}
+
+	payload := `{"jsonrpc":"2.0","id":1,"method":"initialize"}`
+
+	var attempts int
+	var lastBody string
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Errorf("failed to read proxied body on attempt %d: %v", attempts, err)
+		}
+		lastBody = string(body)
+
+		if attempts < 3 {
+			return nil, refusedDialErr()
+		}
+		return response(http.StatusOK, `{"jsonrpc":"2.0","id":1,"result":{}}`), nil
+	})
+
+	setTestTransport(t, rt)
+	svc := NewService(fc, ServiceConfig{
+		Namespace:            "ns",
+		SidecarPort:          "4444",
+		BrowserStartTimeout:  time.Second,
+		SessionCreateTimeout: 5 * time.Second,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", bytes.NewBufferString(payload))
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rw.Code)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts, got %d", attempts)
+	}
+	if lastBody != payload {
+		t.Fatalf("unexpected body on retried attempt: %s", lastBody)
+	}
+}
+
+func TestMcpHandlerInitBodyReadError(t *testing.T) {
+	fc := &fakeClient{
+		stream:       runningStream("127.0.0.1"),
+		createResult: &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Name: "br"}},
+	}
+
+	svc := NewService(fc, ServiceConfig{
+		Namespace:           "ns",
+		SidecarPort:         "4444",
+		BrowserStartTimeout: time.Second,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", nil)
+	req.Body = errorReader{}
+	rw := httptest.NewRecorder()
+
+	svc.McpHandler(rw, req)
+
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "failed to read body") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestBrowserFailure(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   browserv1.BrowserStatus
+		expected string
+	}{
+		{"message wins", browserv1.BrowserStatus{Reason: "BrowserPodSpec", Message: "ImagePullBackOff"}, "ImagePullBackOff"},
+		{"falls back to reason", browserv1.BrowserStatus{Reason: "BrowserPodSpec"}, "BrowserPodSpec"},
+		{"blank message falls back", browserv1.BrowserStatus{Reason: "BrowserPodSpec", Message: "   "}, "BrowserPodSpec"},
+		{"nothing set", browserv1.BrowserStatus{}, ErrInternal.Error()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := browserFailure(&browserv1.Browser{Status: tt.status})
+			if err.Error() != tt.expected {
+				t.Fatalf("browserFailure() = %q, want %q", err.Error(), tt.expected)
+			}
+		})
+	}
+}
+
+func TestNotReadyError(t *testing.T) {
+	waiting := func(name, reason string) browserv1.ContainerStatus {
+		return browserv1.ContainerStatus{
+			Name:  name,
+			State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: reason}},
+		}
+	}
+
+	running := browserv1.ContainerStatus{
+		Name:  "browser",
+		State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+	}
+
+	tests := []struct {
+		name     string
+		browser  *browserv1.Browser
+		expected string
+	}{
+		{"no events", nil, "browser did not become ready in 1m0s (no status received)"},
+		{
+			"waiting sidecar",
+			&browserv1.Browser{Status: browserv1.BrowserStatus{
+				ContainerStatuses: []browserv1.ContainerStatus{running, waiting("seleniferous", "ContainerCreating")},
+			}},
+			"browser did not become ready in 1m0s (seleniferous: ContainerCreating)",
+		},
+		{
+			"several waiting sorted",
+			&browserv1.Browser{Status: browserv1.BrowserStatus{
+				ContainerStatuses: []browserv1.ContainerStatus{waiting("seleniferous", "PodInitializing"), waiting("browser", "ImagePullBackOff")},
+			}},
+			"browser did not become ready in 1m0s (browser: ImagePullBackOff, seleniferous: PodInitializing)",
+		},
+		{
+			"waiting without reason",
+			&browserv1.Browser{Status: browserv1.BrowserStatus{
+				ContainerStatuses: []browserv1.ContainerStatus{waiting("seleniferous", "")},
+			}},
+			"browser did not become ready in 1m0s (seleniferous: Waiting)",
+		},
+		{
+			"nothing waiting",
+			&browserv1.Browser{Status: browserv1.BrowserStatus{
+				Phase:             "Pending",
+				ContainerStatuses: []browserv1.ContainerStatus{running},
+			}},
+			"browser did not become ready in 1m0s (phase Pending)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := notReadyError(tt.browser, time.Minute)
+			if err.Error() != tt.expected {
+				t.Fatalf("notReadyError() = %q, want %q", err.Error(), tt.expected)
+			}
+		})
+	}
+}
+
+func TestCreateSessionFailedEventSurfacesMessage(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{
+		Browser: &browserv1.Browser{
+			Status: browserv1.BrowserStatus{
+				Phase:   "Failed",
+				Reason:  "BrowserPodSpec",
+				Message: "Browser pod container seleniferous failed: ImagePullBackOff",
+			},
+		},
+	}
+
+	fc := &fakeClient{
+		stream:       stream,
+		createResult: &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Name: "br"}},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
+	rw := httptest.NewRecorder()
+
+	svc.CreateSession(rw, newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil))
+
+	if !strings.Contains(rw.Body.String(), "ImagePullBackOff") {
+		t.Fatalf("expected the controller message in the response, got %s", rw.Body.String())
+	}
+}
+
+func TestCreateBrowserClientCancelIsNotReportedAsTimeout(t *testing.T) {
+	stream := newFakeStream()
+
+	fc := &fakeClient{
+		stream:       stream,
+		createResult: &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Name: "br"}},
+	}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Minute})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil).WithContext(ctx)
+	rw := httptest.NewRecorder()
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	svc.CreateSession(rw, req)
+
+	if strings.Contains(rw.Body.String(), "did not become ready") {
+		t.Fatalf("client cancellation must not be reported as a timeout, got %s", rw.Body.String())
+	}
 }

@@ -29,10 +29,9 @@ func WithOnClose(f func()) WSProxyOption {
 	return func(p *WSProxy) { p.onClose = f }
 }
 
-func WithRetryTimeout(timeout time.Duration) WSProxyOption {
+func WithWSDialRetry(retry DialRetry) WSProxyOption {
 	return func(p *WSProxy) {
-		p.dialRetryEnabled = true
-		p.timeout = timeout
+		p.dialRetry = retry
 	}
 }
 
@@ -41,8 +40,7 @@ type WSProxy struct {
 	Dialer   websocket.Dialer
 	Resolve  TargetResolver
 
-	dialRetryEnabled bool
-	timeout          time.Duration
+	dialRetry DialRetry
 
 	onConnect func()
 	onMessage func()
@@ -57,7 +55,6 @@ func NewWebSocketReverseProxy(resolver TargetResolver, opts ...WSProxyOption) *W
 				return true
 			},
 		},
-		dialRetryEnabled: false,
 		Dialer: websocket.Dialer{
 			Proxy:            http.ProxyFromEnvironment,
 			HandshakeTimeout: 10 * time.Second,
@@ -98,8 +95,8 @@ func (p *WSProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	upstreamHeaders.Set("Host", targetURL.Host)
 	upstreamHeaders.Del("Origin")
 
-	if p.dialRetryEnabled {
-		upstreamConn, resp, err = dialWithWait(r.Context(), targetURL.String(), &p.Dialer, upstreamHeaders, p.timeout)
+	if p.dialRetry.Timeout > 0 {
+		upstreamConn, resp, err = dialWithWait(r.Context(), targetURL.String(), &p.Dialer, upstreamHeaders, p.dialRetry)
 	} else {
 		upstreamConn, resp, err = p.Dialer.DialContext(r.Context(), targetURL.String(), upstreamHeaders)
 	}
@@ -256,12 +253,17 @@ func filterUpgradeResponseHeaders(src http.Header) http.Header {
 	return dst
 }
 
-func dialWithWait(ctx context.Context, target string, dialer *websocket.Dialer, headers http.Header, timeout time.Duration) (*websocket.Conn, *http.Response, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+func dialWithWait(ctx context.Context, target string, dialer *websocket.Dialer, headers http.Header, retry DialRetry) (*websocket.Conn, *http.Response, error) {
+	ctx, cancel := context.WithTimeout(ctx, retry.Timeout)
 	defer cancel()
 
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	delay := retry.Interval
+	if delay <= 0 {
+		delay = DefaultDialRetryInterval
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
 
 	for {
 		conn, resp, err := dialer.DialContext(ctx, target, headers)
@@ -269,11 +271,19 @@ func dialWithWait(ctx context.Context, target string, dialer *websocket.Dialer, 
 			return conn, resp, nil
 		}
 
+		if !isDialError(err) {
+			return nil, resp, err
+		}
+
 		select {
 		case <-ctx.Done():
-			return nil, resp, fmt.Errorf("could not connect to %s after %v: %w", target, timeout, err)
-		case <-ticker.C:
-			continue
+			return nil, resp, fmt.Errorf("could not connect to %s after %v: %w", target, retry.Timeout, err)
+		case <-timer.C:
 		}
+
+		if retry.MaxInterval > delay {
+			delay = min(delay*2, retry.MaxInterval)
+		}
+		timer.Reset(delay)
 	}
 }

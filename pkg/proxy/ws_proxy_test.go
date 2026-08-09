@@ -165,16 +165,13 @@ func TestFilterUpgradeResponseHeaders(t *testing.T) {
 	}
 }
 
-func TestWithRetryTimeoutOption(t *testing.T) {
+func TestWithoutWSDialRetryDialsOnce(t *testing.T) {
 	p := NewWebSocketReverseProxy(func(r *http.Request) (*url.URL, error) {
 		return url.Parse("ws://example.com")
-	}, WithRetryTimeout(250*time.Millisecond))
+	})
 
-	if !p.dialRetryEnabled {
-		t.Fatal("expected retry to be enabled")
-	}
-	if p.timeout != 250*time.Millisecond {
-		t.Fatalf("unexpected timeout: %v", p.timeout)
+	if p.dialRetry.Timeout != 0 {
+		t.Fatalf("expected no retry budget by default, got %v", p.dialRetry.Timeout)
 	}
 }
 
@@ -207,7 +204,7 @@ func TestDialWithWaitSuccess(t *testing.T) {
 		_ = writeHandshakeResponse(serverConn)
 	}()
 
-	conn, resp, err := dialWithWait(context.Background(), "ws://upstream.test/ws", dialer, http.Header{}, time.Second)
+	conn, resp, err := dialWithWait(context.Background(), "ws://upstream.test/ws", dialer, http.Header{}, DialRetry{Timeout: time.Second})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -226,10 +223,10 @@ func TestDialWithWaitTimeout(t *testing.T) {
 	dialer := &websocket.Dialer{}
 	dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		atomic.AddInt32(&attempts, 1)
-		return nil, errors.New("dial failed")
+		return nil, refusedErr()
 	}
 
-	conn, _, err := dialWithWait(context.Background(), "ws://upstream.test/ws", dialer, http.Header{}, 250*time.Millisecond)
+	conn, _, err := dialWithWait(context.Background(), "ws://upstream.test/ws", dialer, http.Header{}, DialRetry{Timeout: 250 * time.Millisecond})
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
@@ -249,14 +246,14 @@ func TestDialWithWaitContextCancelled(t *testing.T) {
 	dialer := &websocket.Dialer{}
 	dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		atomic.AddInt32(&attempts, 1)
-		return nil, errors.New("dial failed")
+		return nil, refusedErr()
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
 	start := time.Now()
-	conn, _, err := dialWithWait(ctx, "ws://upstream.test/ws", dialer, http.Header{}, 10*time.Second)
+	conn, _, err := dialWithWait(ctx, "ws://upstream.test/ws", dialer, http.Header{}, DialRetry{Timeout: 10 * time.Second})
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -364,7 +361,7 @@ func TestWSProxyServeHTTPUpgradeErrorWithRetry(t *testing.T) {
 
 	p := NewWebSocketReverseProxy(func(r *http.Request) (*url.URL, error) {
 		return url.Parse("ws://upstream.test/ws")
-	}, WithRetryTimeout(time.Second))
+	}, WithWSDialRetry(DialRetry{Timeout: time.Second}))
 	p.Dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		return upClient, nil
 	}
@@ -548,6 +545,56 @@ func (h *hijackResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return h.conn, bufio.NewReadWriter(bufio.NewReader(h.conn), bufio.NewWriter(h.conn)), nil
 }
 
+func writeRejectResponse(conn net.Conn) error {
+	reader := bufio.NewReader(conn)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return err
+		}
+		if strings.TrimRight(line, "\r\n") == "" {
+			break
+		}
+	}
+
+	_, err := conn.Write([]byte("HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n"))
+	return err
+}
+
+func TestDialWithWaitStopsOnBadHandshake(t *testing.T) {
+	var attempts int32
+	dialer := &websocket.Dialer{}
+	dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		atomic.AddInt32(&attempts, 1)
+
+		client, server := net.Pipe()
+		t.Cleanup(func() { _ = client.Close() })
+
+		go func() {
+			defer func() { _ = server.Close() }()
+			_ = writeRejectResponse(server)
+		}()
+
+		return client, nil
+	}
+
+	conn, resp, err := dialWithWait(context.Background(), "ws://upstream.test/ws", dialer, http.Header{},
+		DialRetry{Timeout: time.Second, Interval: time.Millisecond})
+
+	if !errors.Is(err, websocket.ErrBadHandshake) {
+		t.Fatalf("expected ErrBadHandshake, got %v", err)
+	}
+	if conn != nil {
+		t.Fatal("expected nil connection")
+	}
+	if resp == nil || resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected the upstream response to be returned, got %v", resp)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Fatalf("expected a single attempt, got %d", got)
+	}
+}
+
 func writeHandshakeResponse(conn net.Conn) error {
 	reader := bufio.NewReader(conn)
 	var key string
@@ -654,4 +701,70 @@ func readFramePayload(r io.Reader) ([]byte, byte, error) {
 		}
 	}
 	return payload, opcode, nil
+}
+
+func TestWithWSDialRetryOption(t *testing.T) {
+	p := NewWebSocketReverseProxy(func(r *http.Request) (*url.URL, error) {
+		return url.Parse("ws://example.com")
+	}, WithWSDialRetry(DialRetry{
+		Timeout:     time.Minute,
+		Interval:    50 * time.Millisecond,
+		MaxInterval: 500 * time.Millisecond,
+	}))
+
+	if p.dialRetry.Timeout != time.Minute {
+		t.Fatalf("Timeout = %v, want 1m", p.dialRetry.Timeout)
+	}
+	if p.dialRetry.Interval != 50*time.Millisecond {
+		t.Fatalf("Interval = %v, want 50ms", p.dialRetry.Interval)
+	}
+	if p.dialRetry.MaxInterval != 500*time.Millisecond {
+		t.Fatalf("MaxInterval = %v, want 500ms", p.dialRetry.MaxInterval)
+	}
+}
+
+func TestDialWithWaitBackoffSlowsDownRetries(t *testing.T) {
+	count := func(retry DialRetry) int32 {
+		var attempts int32
+		dialer := &websocket.Dialer{}
+		dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			atomic.AddInt32(&attempts, 1)
+			return nil, refusedErr()
+		}
+
+		_, _, _ = dialWithWait(context.Background(), "ws://upstream.test/ws", dialer, http.Header{}, retry)
+		return atomic.LoadInt32(&attempts)
+	}
+
+	flat := count(DialRetry{Timeout: 400 * time.Millisecond, Interval: 10 * time.Millisecond})
+	backoff := count(DialRetry{
+		Timeout:     400 * time.Millisecond,
+		Interval:    10 * time.Millisecond,
+		MaxInterval: 160 * time.Millisecond,
+	})
+
+	if backoff >= flat {
+		t.Fatalf("expected backoff to make fewer dials than a flat interval, got %d vs %d", backoff, flat)
+	}
+}
+
+func TestDialWithWaitDefaultsIntervalWhenUnset(t *testing.T) {
+	var attempts int32
+	dialer := &websocket.Dialer{}
+	dialer.NetDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		atomic.AddInt32(&attempts, 1)
+		return nil, refusedErr()
+	}
+
+	start := time.Now()
+	_, _, err := dialWithWait(context.Background(), "ws://upstream.test/ws", dialer, http.Header{},
+		DialRetry{Timeout: 350 * time.Millisecond})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if got := atomic.LoadInt32(&attempts); got > 10 {
+		t.Fatalf("expected the default interval to pace the dials, got %d attempts in %v", got, elapsed)
+	}
 }

@@ -168,6 +168,7 @@ func loadConfig() (service.ServiceConfig, *auth.AuthStore, string, string, error
 
 	cfg.SidecarPort = env.GetEnvOrDefault("PROXY_PORT", "4445")
 	cfg.BrowserStartTimeout = env.GetEnvDurationOrDefault("BROWSER_STARTUP_TIMEOUT", 3*time.Minute)
+	cfg.SessionCreateTimeout = env.GetEnvDurationOrDefault("SESSION_CREATE_TIMEOUT", 3*time.Minute)
 	cfg.Namespace = env.GetEnvOrDefault("NAMESPACE", "selenosis")
 
 	basicAuthFilePath := env.GetEnvOrDefault("BASIC_AUTH_FILE", "")
