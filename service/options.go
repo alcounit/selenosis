@@ -161,3 +161,19 @@ func setSelenosisOptions(ann map[string]string, opts map[string]any) (map[string
 	ann[browserv1.SelenosisOptionsAnnotationKey] = string(b)
 	return ann, nil
 }
+
+func dropMcpOptions(q url.Values) string {
+	q = dropSelenosisOptions(q)
+	q.Del("browser")
+	q.Del("version")
+	return q.Encode()
+}
+
+func dropSelenosisOptions(q url.Values) url.Values {
+	for k := range q {
+		if strings.HasPrefix(k, "labels.") || strings.HasPrefix(k, "containers.") {
+			delete(q, k)
+		}
+	}
+	return q
+}

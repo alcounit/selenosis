@@ -788,6 +788,137 @@ func TestPlaywrightProxyAttemptAndOwnerLabel(t *testing.T) {
 	}
 }
 
+func startSidecarQueryRecorder(t *testing.T) (string, <-chan *url.URL, func()) {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen on local port: %v", err)
+	}
+
+	captured := make(chan *url.URL, 4)
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		target := *r.URL
+		select {
+		case captured <- &target:
+		default:
+		}
+		w.WriteHeader(http.StatusBadRequest)
+	})}
+
+	done := make(chan struct{})
+	go func() {
+		_ = server.Serve(listener)
+		close(done)
+	}()
+
+	shutdown := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = server.Shutdown(ctx)
+		_ = listener.Close()
+		<-done
+	}
+
+	_, port, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		shutdown()
+		t.Fatalf("failed to resolve listener port: %v", err)
+	}
+
+	return port, captured, shutdown
+}
+
+func playwrightUpstreamURL(t *testing.T, target string) *url.URL {
+	t.Helper()
+
+	port, captured, shutdown := startSidecarQueryRecorder(t)
+	defer shutdown()
+
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{Browser: runningBrowser("127.0.0.1")}
+
+	svc := NewService(&fakeClient{
+		stream: stream,
+		createResult: &browserv1.Browser{
+			ObjectMeta: metav1.ObjectMeta{Name: "br"},
+		},
+	}, ServiceConfig{
+		Namespace:           "ns",
+		SidecarPort:         port,
+		BrowserStartTimeout: time.Second,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req = setParams(req, map[string]string{"name": "chromium", "version": "123"})
+	rw := httptest.NewRecorder()
+
+	svc.Playwright(rw, req)
+
+	select {
+	case upstream := <-captured:
+		return upstream
+	case <-time.After(2 * time.Second):
+		t.Fatal("sidecar was never called")
+		return nil
+	}
+}
+
+func TestPlaywrightForwardsClientQueryToSidecar(t *testing.T) {
+	upstream := playwrightUpstreamURL(t, "/playwright?headless=false&timeout=30000&labels.env=test&containers.browser.env.DEBUG=1")
+
+	if upstream.Path != "/playwright" {
+		t.Fatalf("unexpected sidecar path: %q", upstream.Path)
+	}
+
+	q := upstream.Query()
+	if q.Get("headless") != "false" {
+		t.Fatalf("expected headless=false to reach the sidecar, got %q", q.Get("headless"))
+	}
+	if q.Get("timeout") != "30000" {
+		t.Fatalf("expected timeout=30000 to reach the sidecar, got %q", q.Get("timeout"))
+	}
+	if _, ok := q["labels.env"]; ok {
+		t.Fatal("expected labels.* to be dropped")
+	}
+	if _, ok := q["containers.browser.env.DEBUG"]; ok {
+		t.Fatal("expected containers.* to be dropped")
+	}
+	if want := mcpSessionID(t, "127.0.0.1"); q.Get("ipuuid") != want {
+		t.Fatalf("expected ipuuid %q, got %q", want, q.Get("ipuuid"))
+	}
+}
+
+func TestPlaywrightOverridesClientSuppliedIPUUID(t *testing.T) {
+	upstream := playwrightUpstreamURL(t, "/playwright?ipuuid=deadbeef&headless=false")
+
+	got := upstream.Query()["ipuuid"]
+	if want := mcpSessionID(t, "127.0.0.1"); len(got) != 1 || got[0] != want {
+		t.Fatalf("expected a single generated ipuuid %q, got %#v", want, got)
+	}
+}
+
+func TestPlaywrightForwardsOnlyIPUUIDWhenQueryEmpty(t *testing.T) {
+	upstream := playwrightUpstreamURL(t, "/playwright")
+
+	if want := "ipuuid=" + mcpSessionID(t, "127.0.0.1"); upstream.RawQuery != want {
+		t.Fatalf("expected raw query %q, got %q", want, upstream.RawQuery)
+	}
+}
+
+func TestPlaywrightPreservesRepeatedAndEncodedValues(t *testing.T) {
+	upstream := playwrightUpstreamURL(t, "/playwright?args=--no-sandbox&args=--disable-gpu&note=a+b%26c")
+
+	q := upstream.Query()
+	args := q["args"]
+	if len(args) != 2 || args[0] != "--no-sandbox" || args[1] != "--disable-gpu" {
+		t.Fatalf("expected both args values in order, got %#v", args)
+	}
+	if q.Get("note") != "a b&c" {
+		t.Fatalf("expected encoded value to survive, got %q", q.Get("note"))
+	}
+}
+
 func mcpSessionID(t *testing.T, ip string) string {
 	t.Helper()
 	uid, err := ipuuid.IPToUUID(net.ParseIP(ip))
@@ -1213,8 +1344,108 @@ func TestMcpHandlerPreservesQueryParams(t *testing.T) {
 	if gotReq == nil {
 		t.Fatal("expected transport to be called")
 	}
-	if gotReq.URL.RawQuery != "foo=bar&baz=qux" {
+	q := gotReq.URL.Query()
+	if q.Get("foo") != "bar" || q.Get("baz") != "qux" {
 		t.Fatalf("expected query params to be preserved, got %q", gotReq.URL.RawQuery)
+	}
+	if len(q) != 2 {
+		t.Fatalf("expected only the client query params, got %q", gotReq.URL.RawQuery)
+	}
+}
+
+func mcpInitUpstreamURL(t *testing.T, target string) *url.URL {
+	t.Helper()
+
+	var gotReq *http.Request
+	setTestTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		gotReq = req
+		return response(http.StatusOK, "{}"), nil
+	}))
+
+	svc := NewService(&fakeClient{
+		stream:       runningStream("127.0.0.1"),
+		createResult: &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Name: "br"}},
+	}, ServiceConfig{
+		Namespace:           "ns",
+		SidecarPort:         "4444",
+		BrowserStartTimeout: time.Second,
+	})
+
+	rw := httptest.NewRecorder()
+	svc.McpHandler(rw, httptest.NewRequest(http.MethodPost, target, nil))
+
+	if gotReq == nil {
+		t.Fatal("expected transport to be called")
+	}
+	return gotReq.URL
+}
+
+func mcpRoutedUpstreamURL(t *testing.T, target string) *url.URL {
+	t.Helper()
+
+	var gotReq *http.Request
+	setTestTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		gotReq = req
+		return response(http.StatusOK, "{}"), nil
+	}))
+
+	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4444"})
+
+	rw := httptest.NewRecorder()
+	svc.McpHandler(rw, mcpProxyRequest(t, http.MethodPost, target))
+
+	if gotReq == nil {
+		t.Fatal("expected transport to be called")
+	}
+	return gotReq.URL
+}
+
+func TestMcpHandlerInitDropsReservedParams(t *testing.T) {
+	upstream := mcpInitUpstreamURL(t, "/mcp?browser=chromium&version=123&labels.team=qa&containers.browser.env.DEBUG=1&foo=bar")
+
+	q := upstream.Query()
+	if q.Get("foo") != "bar" {
+		t.Fatalf("expected client params to survive, got %q", upstream.RawQuery)
+	}
+	for _, key := range []string{"browser", "version", "labels.team", "containers.browser.env.DEBUG"} {
+		if _, ok := q[key]; ok {
+			t.Fatalf("expected %q to be dropped, got %q", key, upstream.RawQuery)
+		}
+	}
+}
+
+func TestMcpHandlerRoutedDropsReservedParams(t *testing.T) {
+	upstream := mcpRoutedUpstreamURL(t, "/mcp?browser=chromium&version=123&labels.team=qa&containers.browser.env.DEBUG=1&foo=bar")
+
+	q := upstream.Query()
+	if q.Get("foo") != "bar" {
+		t.Fatalf("expected client params to survive, got %q", upstream.RawQuery)
+	}
+	for _, key := range []string{"browser", "version", "labels.team", "containers.browser.env.DEBUG"} {
+		if _, ok := q[key]; ok {
+			t.Fatalf("expected %q to be dropped, got %q", key, upstream.RawQuery)
+		}
+	}
+}
+
+func TestMcpHandlerInitSendsEmptyQueryWhenOnlyReservedParams(t *testing.T) {
+	upstream := mcpInitUpstreamURL(t, "/mcp?browser=chromium&version=123")
+
+	if upstream.RawQuery != "" {
+		t.Fatalf("expected empty raw query, got %q", upstream.RawQuery)
+	}
+}
+
+func TestMcpHandlerRoutedPreservesRepeatedAndEncodedValues(t *testing.T) {
+	upstream := mcpRoutedUpstreamURL(t, "/mcp?browser=chromium&version=123&arg=a&arg=b&note=a+b%26c")
+
+	q := upstream.Query()
+	args := q["arg"]
+	if len(args) != 2 || args[0] != "a" || args[1] != "b" {
+		t.Fatalf("expected both arg values in order, got %#v", args)
+	}
+	if q.Get("note") != "a b&c" {
+		t.Fatalf("expected encoded value to survive, got %q", q.Get("note"))
 	}
 }
 

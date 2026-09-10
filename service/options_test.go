@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -125,6 +126,193 @@ func TestParseSelenosisOptionsErrors(t *testing.T) {
 				t.Fatalf("expected error containing %q, got %v", tt.want, err)
 			}
 		})
+	}
+}
+
+func TestDropSelenosisOptions(t *testing.T) {
+	tests := []struct {
+		name string
+		q    url.Values
+		want url.Values
+	}{
+		{
+			name: "empty",
+			q:    url.Values{},
+			want: url.Values{},
+		},
+		{
+			name: "drops labels and containers",
+			q: url.Values{
+				"labels.env":                   {"test"},
+				"containers.browser.env.DEBUG": {"1"},
+			},
+			want: url.Values{},
+		},
+		{
+			name: "keeps browser options",
+			q: url.Values{
+				"headless": {"false"},
+				"timeout":  {"30000"},
+				"devtools": {"true"},
+			},
+			want: url.Values{
+				"headless": {"false"},
+				"timeout":  {"30000"},
+				"devtools": {"true"},
+			},
+		},
+		{
+			name: "keeps unrelated dotted keys",
+			q: url.Values{
+				"labelsx.env":  {"test"},
+				"container.a":  {"1"},
+				"other.labels": {"1"},
+			},
+			want: url.Values{
+				"labelsx.env":  {"test"},
+				"container.a":  {"1"},
+				"other.labels": {"1"},
+			},
+		},
+		{
+			name: "keeps bare prefixes",
+			q: url.Values{
+				"labels":     {"x"},
+				"containers": {"x"},
+			},
+			want: url.Values{
+				"labels":     {"x"},
+				"containers": {"x"},
+			},
+		},
+		{
+			name: "drops deep selenosis keys",
+			q: url.Values{
+				"labels.a.b":                   {"x"},
+				"containers.browser.bad.DEBUG": {"x"},
+				"headless":                     {"false"},
+			},
+			want: url.Values{
+				"headless": {"false"},
+			},
+		},
+		{
+			name: "preserves repeated values",
+			q: url.Values{
+				"args":       {"--no-sandbox", "--disable-gpu"},
+				"labels.env": {"a", "b"},
+			},
+			want: url.Values{
+				"args": {"--no-sandbox", "--disable-gpu"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := dropSelenosisOptions(tt.q)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("expected %#v, got %#v", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestDropMcpOptions(t *testing.T) {
+	tests := []struct {
+		name string
+		q    url.Values
+		want string
+	}{
+		{
+			name: "empty",
+			q:    url.Values{},
+			want: "",
+		},
+		{
+			name: "drops routing and selenosis params",
+			q: url.Values{
+				"browser":                      {"playwright-mcp"},
+				"version":                      {"0.0.75"},
+				"labels.team":                  {"qa"},
+				"containers.browser.env.DEBUG": {"1"},
+			},
+			want: "",
+		},
+		{
+			name: "keeps client params",
+			q: url.Values{
+				"browser": {"playwright-mcp"},
+				"version": {"0.0.75"},
+				"foo":     {"bar"},
+			},
+			want: "foo=bar",
+		},
+		{
+			name: "keeps repeated values",
+			q: url.Values{
+				"browser": {"playwright-mcp"},
+				"arg":     {"a", "b"},
+			},
+			want: "arg=a&arg=b",
+		},
+		{
+			name: "keeps similar keys",
+			q: url.Values{
+				"browserName": {"chrome"},
+				"versions":    {"1"},
+			},
+			want: "browserName=chrome&versions=1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := dropMcpOptions(tt.q); got != tt.want {
+				t.Fatalf("expected %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestDropMcpOptionsNilValues(t *testing.T) {
+	if got := dropMcpOptions(nil); got != "" {
+		t.Fatalf("expected empty encoding, got %q", got)
+	}
+}
+
+func BenchmarkPlaywrightUpstreamQuery(b *testing.B) {
+	raw := "headless=false&timeout=30000&args=--no-sandbox&args=--disable-gpu&labels.env=test&containers.browser.env.DEBUG=1"
+	uuid := "11111111-2222-3333-4444-555555555555"
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		q, _ := url.ParseQuery(raw)
+		q = dropSelenosisOptions(q)
+		q.Set("ipuuid", uuid)
+		_ = q.Encode()
+	}
+}
+
+func BenchmarkMcpUpstreamQuery(b *testing.B) {
+	raw := "browser=playwright-mcp&version=0.0.75&labels.team=qa&containers.browser.env.DEBUG=1"
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		q, _ := url.ParseQuery(raw)
+		_ = dropMcpOptions(q)
+	}
+}
+
+func TestDropSelenosisOptionsNilValues(t *testing.T) {
+	got := dropSelenosisOptions(nil)
+	if len(got) != 0 {
+		t.Fatalf("expected empty values, got %#v", got)
+	}
+	if got.Encode() != "" {
+		t.Fatalf("expected empty encoding, got %q", got.Encode())
 	}
 }
 
