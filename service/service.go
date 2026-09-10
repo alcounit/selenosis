@@ -263,18 +263,17 @@ func (s *Service) Playwright(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	query := dropSelenosisOptions(req.URL.Query())
+	query.Set("ipuuid", sessionUUID.String())
+	rawQuery := query.Encode()
+
 	resolver := func(r *http.Request) (*url.URL, error) {
-		url := &url.URL{
-			Scheme: "ws",
-			Host:   net.JoinHostPort(podIP, s.config.SidecarPort),
-			Path:   "/playwright",
-		}
-
-		query := url.Query()
-		query.Add("ipuuid", sessionUUID.String())
-
-		url.RawQuery = query.Encode()
-		return url, nil
+		return &url.URL{
+			Scheme:   "ws",
+			Host:     net.JoinHostPort(podIP, s.config.SidecarPort),
+			Path:     "/playwright",
+			RawQuery: rawQuery,
+		}, nil
 	}
 
 	log.Info().
@@ -384,12 +383,14 @@ func (s *Service) McpHandler(rw http.ResponseWriter, req *http.Request) {
 			}
 		}
 
+		rawQuery := dropMcpOptions(req.URL.Query())
+
 		reqModifier := func(r *http.Request) {
 			r.URL = &url.URL{
 				Scheme:   "http",
 				Host:     host,
 				Path:     "/mcp",
-				RawQuery: req.URL.RawQuery,
+				RawQuery: rawQuery,
 			}
 			r.Host = host
 			r.Body = io.NopCloser(bytes.NewReader(body))
@@ -432,12 +433,14 @@ func (s *Service) McpHandler(rw http.ResponseWriter, req *http.Request) {
 		Str("sessionId", sessionId).
 		Msg("proxying mcp request")
 
+	rawQuery := dropMcpOptions(req.URL.Query())
+
 	reqModifier := func(r *http.Request) {
 		r.URL = &url.URL{
 			Scheme:   "http",
 			Host:     host,
 			Path:     "/mcp",
-			RawQuery: req.URL.RawQuery,
+			RawQuery: rawQuery,
 		}
 		r.Host = host
 	}
