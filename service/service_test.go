@@ -298,6 +298,9 @@ func TestCreateSessionUsesBrowserNameFilter(t *testing.T) {
 	if values.Get("name") != fc.created.GetName() {
 		t.Fatalf("expected browser name filter %q, got %q", fc.created.GetName(), values.Get("name"))
 	}
+	if got := fc.created.ObjectMeta.Annotations[browserv1.SelenosisSessionTypeAnnotationKey]; got != string(sessionTypeSelenium) {
+		t.Fatalf("%s = %q, want %q", browserv1.SelenosisSessionTypeAnnotationKey, got, sessionTypeSelenium)
+	}
 }
 
 func TestCreateSessionSelenosisOptionsAnnotation(t *testing.T) {
@@ -331,8 +334,16 @@ func TestCreateSessionSelenosisOptionsAnnotation(t *testing.T) {
 	if fc.created == nil {
 		t.Fatal("expected browser to be created")
 	}
-	if got := fc.created.ObjectMeta.Annotations[browserv1.SelenosisOptionsAnnotationKey]; got == "" {
+	if got := fc.created.ObjectMeta.Labels["env"]; got != "test" {
+		t.Fatalf("env label = %q, want test (labels: %#v)", got, fc.created.ObjectMeta.Labels)
+	}
+
+	stored := fc.created.ObjectMeta.Annotations[browserv1.SelenosisOptionsAnnotationKey]
+	if stored == "" {
 		t.Fatalf("expected %s annotation to be set", browserv1.SelenosisOptionsAnnotationKey)
+	}
+	if strings.Contains(stored, "labels") {
+		t.Fatalf("labels must not be stored in %s: %s", browserv1.SelenosisOptionsAnnotationKey, stored)
 	}
 
 	var forwarded map[string]any
@@ -786,6 +797,9 @@ func TestPlaywrightProxyAttemptAndOwnerLabel(t *testing.T) {
 	if fc.created.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey] != "qa-owner" {
 		t.Fatalf("unexpected owner label: %q", fc.created.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey])
 	}
+	if got := fc.created.ObjectMeta.Annotations[browserv1.SelenosisSessionTypeAnnotationKey]; got != string(sessionTypePlaywright) {
+		t.Fatalf("%s = %q, want %q", browserv1.SelenosisSessionTypeAnnotationKey, got, sessionTypePlaywright)
+	}
 }
 
 func startSidecarQueryRecorder(t *testing.T) (string, <-chan *url.URL, func()) {
@@ -1141,6 +1155,9 @@ func TestMcpHandlerInitSuccess(t *testing.T) {
 	if fc.created.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey] != "mcp-user" {
 		t.Fatalf("unexpected owner label: %q", fc.created.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey])
 	}
+	if got := fc.created.ObjectMeta.Annotations[browserv1.SelenosisSessionTypeAnnotationKey]; got != string(sessionTypeMCP) {
+		t.Fatalf("%s = %q, want %q", browserv1.SelenosisSessionTypeAnnotationKey, got, sessionTypeMCP)
+	}
 }
 
 func TestMcpHandlerInitSelenosisOptions(t *testing.T) {
@@ -1170,8 +1187,8 @@ func TestMcpHandlerInitSelenosisOptions(t *testing.T) {
 	if fc.created == nil {
 		t.Fatal("expected browser to be created")
 	}
-	if fc.created.ObjectMeta.Annotations[browserv1.SelenosisOptionsAnnotationKey] == "" {
-		t.Fatalf("expected %s annotation", browserv1.SelenosisOptionsAnnotationKey)
+	if got := fc.created.ObjectMeta.Labels["env"]; got != "test" {
+		t.Fatalf("env label = %q, want test (labels: %#v)", got, fc.created.ObjectMeta.Labels)
 	}
 }
 
@@ -1181,7 +1198,13 @@ func TestCreateBrowserSetOptionsError(t *testing.T) {
 	rw := httptest.NewRecorder()
 
 	opts := map[string]any{"bad": make(chan int)}
-	if _, _, _, ok := svc.createBrowser(rw, req, "chromium", "123", opts, writeMcpWaitError); ok {
+	cfg := sessionConfig{
+		SessionType:      sessionTypeMCP,
+		BrowserName:      "chromium",
+		BrowserVersion:   "123",
+		SelenosisOptions: opts,
+	}
+	if _, ok := svc.createBrowser(rw, req, cfg); ok {
 		t.Fatal("expected createBrowser to fail on unmarshalable options")
 	}
 	if rw.Code != http.StatusBadRequest {
@@ -1199,10 +1222,15 @@ func TestCreateBrowserReturnsBrowserNameAndSessionUUID(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/session", nil)
 	rw := httptest.NewRecorder()
 
-	podIP, browserName, sessionUUID, ok := svc.createBrowser(rw, req, "chromium", "123", nil, writeCreateSessionWaitError)
+	got, ok := svc.createBrowser(rw, req, sessionConfig{
+		SessionType:    sessionTypeSelenium,
+		BrowserName:    "chromium",
+		BrowserVersion: "123",
+	})
 	if !ok {
 		t.Fatalf("expected createBrowser to succeed, status=%d", rw.Code)
 	}
+	podIP, browserName, sessionUUID := got.PodIP, got.Hostname, got.SessionUUID
 	if podIP != "127.0.0.1" {
 		t.Errorf("podIP = %q, want 127.0.0.1", podIP)
 	}
@@ -1890,6 +1918,9 @@ func validCapsBodyWithOptions() string {
 				"labels": map[string]any{
 					"env": "test",
 				},
+				"containers": map[string]any{
+					"browser": map[string]any{"env": map[string]any{"LOG_LEVEL": "debug"}},
+				},
 			},
 		},
 	}
@@ -1951,33 +1982,6 @@ func TestCreateSessionConcurrent(t *testing.T) {
 	}
 
 	wg.Wait()
-}
-
-func TestSetSelenosisOptions(t *testing.T) {
-	ann := map[string]string{"k": "v"}
-	opts := map[string]any{"a": "b"}
-	out, err := setSelenosisOptions(ann, opts)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if out[browserv1.SelenosisOptionsAnnotationKey] == "" {
-		t.Fatalf("expected %s to be set", browserv1.SelenosisOptionsAnnotationKey)
-	}
-
-	out, err = setSelenosisOptions(nil, map[string]any{})
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if out != nil && out[browserv1.SelenosisOptionsAnnotationKey] != "" {
-		t.Fatalf("expected no options annotation for empty opts")
-	}
-}
-
-func TestSetSelenosisOptionsMarshalError(t *testing.T) {
-	_, err := setSelenosisOptions(nil, map[string]any{"bad": func() {}})
-	if err == nil {
-		t.Fatalf("expected error")
-	}
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -2128,12 +2132,16 @@ func TestCreateBrowserWaitsForSeleniferousContainer(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/session", nil)
 	rw := httptest.NewRecorder()
 
-	podIP, _, _, ok := svc.createBrowser(rw, req, "chromium", "123", nil, writeCreateSessionWaitError)
+	got, ok := svc.createBrowser(rw, req, sessionConfig{
+		SessionType:    sessionTypeSelenium,
+		BrowserName:    "chromium",
+		BrowserVersion: "123",
+	})
 	if !ok {
 		t.Fatalf("expected createBrowser to succeed, status=%d", rw.Code)
 	}
-	if podIP != "127.0.0.1" {
-		t.Fatalf("podIP = %q, want 127.0.0.1", podIP)
+	if got.PodIP != "127.0.0.1" {
+		t.Fatalf("podIP = %q, want 127.0.0.1", got.PodIP)
 	}
 }
 
@@ -2147,12 +2155,16 @@ func TestCreateBrowserIgnoresRunningEventWithoutPodIP(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/session", nil)
 	rw := httptest.NewRecorder()
 
-	podIP, _, _, ok := svc.createBrowser(rw, req, "chromium", "123", nil, writeCreateSessionWaitError)
+	got, ok := svc.createBrowser(rw, req, sessionConfig{
+		SessionType:    sessionTypeSelenium,
+		BrowserName:    "chromium",
+		BrowserVersion: "123",
+	})
 	if !ok {
 		t.Fatalf("expected createBrowser to succeed, status=%d", rw.Code)
 	}
-	if podIP != "127.0.0.1" {
-		t.Fatalf("podIP = %q, want 127.0.0.1", podIP)
+	if got.PodIP != "127.0.0.1" {
+		t.Fatalf("podIP = %q, want 127.0.0.1", got.PodIP)
 	}
 }
 
@@ -2532,5 +2544,222 @@ func TestCreateBrowserClientCancelIsNotReportedAsTimeout(t *testing.T) {
 
 	if strings.Contains(rw.Body.String(), "did not become ready") {
 		t.Fatalf("client cancellation must not be reported as a timeout, got %s", rw.Body.String())
+	}
+}
+
+func TestSetSessionTypeAnnotation(t *testing.T) {
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		sessionType sessionType
+		want        string
+	}{
+		{name: "nil annotations map", annotations: nil, sessionType: sessionTypeSelenium, want: "selenium"},
+		{name: "playwright", annotations: map[string]string{}, sessionType: sessionTypePlaywright, want: "playwright"},
+		{name: "mcp", annotations: map[string]string{}, sessionType: sessionTypeMCP, want: "mcp"},
+		{
+			name:        "overrides user supplied value",
+			annotations: map[string]string{browserv1.SelenosisSessionTypeAnnotationKey: "bogus"},
+			sessionType: sessionTypeSelenium,
+			want:        "selenium",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			template := &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Annotations: tt.annotations}}
+
+			setSessionTypeAnnotation(template, tt.sessionType)
+
+			if template.ObjectMeta.Annotations == nil {
+				t.Fatal("expected annotations map to be initialized")
+			}
+			if got := template.ObjectMeta.Annotations[browserv1.SelenosisSessionTypeAnnotationKey]; got != tt.want {
+				t.Errorf("%s = %q, want %q", browserv1.SelenosisSessionTypeAnnotationKey, got, tt.want)
+			}
+			if template.ObjectMeta.Labels != nil {
+				t.Errorf("labels must stay untouched, got %+v", template.ObjectMeta.Labels)
+			}
+		})
+	}
+}
+
+func TestSetSessionTypeAnnotationKeepsExisting(t *testing.T) {
+	template := &browserv1.Browser{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{"startedManually": "true"},
+		},
+	}
+
+	setSessionTypeAnnotation(template, sessionTypePlaywright)
+
+	if got := template.ObjectMeta.Annotations["startedManually"]; got != "true" {
+		t.Errorf("startedManually = %q, want true", got)
+	}
+	if got := template.ObjectMeta.Annotations[browserv1.SelenosisSessionTypeAnnotationKey]; got != "playwright" {
+		t.Errorf("%s = %q, want playwright", browserv1.SelenosisSessionTypeAnnotationKey, got)
+	}
+	if template.ObjectMeta.Labels != nil {
+		t.Errorf("labels must stay untouched, got %+v", template.ObjectMeta.Labels)
+	}
+}
+
+func TestCreateSessionSessionTypeWinsOverUserAnnotation(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{Browser: runningBrowser("127.0.0.1")}
+
+	setTestTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"value":{"sessionId":"orig"}}`), nil
+	}))
+
+	payload := map[string]any{
+		"capabilities": map[string]any{
+			"alwaysMatch": map[string]any{
+				"browserName":    "chrome",
+				"browserVersion": "120",
+				"selenosis:options": map[string]any{
+					"annotations": map[string]any{browserv1.SelenosisSessionTypeAnnotationKey: "bogus"},
+				},
+			},
+		},
+	}
+	raw, _ := json.Marshal(payload)
+
+	fc := &captureClient{fakeClient: fakeClient{stream: stream}}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBuffer(raw), nil)
+	rw := httptest.NewRecorder()
+
+	svc.CreateSession(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rw.Code)
+	}
+	if fc.created == nil {
+		t.Fatal("expected browser to be created")
+	}
+	if got := fc.created.ObjectMeta.Annotations[browserv1.SelenosisSessionTypeAnnotationKey]; got != string(sessionTypeSelenium) {
+		t.Fatalf("%s = %q, want %q", browserv1.SelenosisSessionTypeAnnotationKey, got, sessionTypeSelenium)
+	}
+	if _, ok := fc.created.ObjectMeta.Labels[browserv1.SelenosisSessionTypeAnnotationKey]; ok {
+		t.Fatalf("%s must not be set as a label, got %+v", browserv1.SelenosisSessionTypeAnnotationKey, fc.created.ObjectMeta.Labels)
+	}
+}
+
+func capsBodyWithAnnotations() string {
+	payload := map[string]any{
+		"capabilities": map[string]any{
+			"alwaysMatch": map[string]any{
+				"browserName":    "chrome",
+				"browserVersion": "120",
+				"selenosis:options": map[string]any{
+					"annotations": map[string]any{"startedManually": "true"},
+					"labels":      map[string]any{"selenosis.io/owner": "ui-user"},
+					"containers":  map[string]any{"browser": map[string]any{"env": map[string]any{"A": "1"}}},
+				},
+			},
+		},
+	}
+	raw, _ := json.Marshal(payload)
+	return string(raw)
+}
+
+func TestCreateSessionPromotesAnnotationsToBrowserCR(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{Browser: runningBrowser("127.0.0.1")}
+
+	setTestTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"value":{"sessionId":"orig"}}`), nil
+	}))
+
+	fc := &captureClient{fakeClient: fakeClient{stream: stream}}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(capsBodyWithAnnotations()), nil)
+	rw := httptest.NewRecorder()
+
+	svc.CreateSession(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rw.Code)
+	}
+	if fc.created == nil {
+		t.Fatal("expected browser to be created")
+	}
+	if got := fc.created.ObjectMeta.Annotations["startedManually"]; got != "true" {
+		t.Fatalf("startedManually = %q, want true (annotations: %#v)", got, fc.created.ObjectMeta.Annotations)
+	}
+	if got := fc.created.ObjectMeta.Labels[browserv1.SelenosisOwnerLabelKey]; got != "ui-user" {
+		t.Fatalf("owner label = %q, want ui-user", got)
+	}
+
+	stored := fc.created.ObjectMeta.Annotations[browserv1.SelenosisOptionsAnnotationKey]
+	if stored == "" {
+		t.Fatalf("expected %s annotation to carry containers", browserv1.SelenosisOptionsAnnotationKey)
+	}
+	if strings.Contains(stored, "annotations") || strings.Contains(stored, "labels") {
+		t.Fatalf("only containers belong in %s: %s", browserv1.SelenosisOptionsAnnotationKey, stored)
+	}
+}
+
+func TestPlaywrightPromotesAnnotationsToBrowserCR(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{Browser: runningBrowser("127.0.0.1")}
+
+	fc := &captureClient{fakeClient: fakeClient{stream: stream}}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns", SidecarPort: "4444", BrowserStartTimeout: time.Second})
+
+	req := httptest.NewRequest(http.MethodGet, "/playwright?annotations.startedManually=true&labels.team=qa", nil)
+	req = setParams(req, map[string]string{"name": "chromium", "version": "123"})
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	rw := httptest.NewRecorder()
+
+	svc.Playwright(rw, req)
+
+	if fc.created == nil {
+		t.Fatal("expected browser to be created")
+	}
+	if got := fc.created.ObjectMeta.Annotations["startedManually"]; got != "true" {
+		t.Fatalf("startedManually = %q, want true (annotations: %#v)", got, fc.created.ObjectMeta.Annotations)
+	}
+}
+
+func TestCreateBrowserSetAnnotationsError(t *testing.T) {
+	svc := NewService(&fakeClient{}, ServiceConfig{Namespace: "ns"})
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	rw := httptest.NewRecorder()
+
+	cfg := sessionConfig{
+		SessionType:      sessionTypeMCP,
+		BrowserName:      "chromium",
+		BrowserVersion:   "123",
+		SelenosisOptions: map[string]any{"annotations": "not-an-object"},
+	}
+	if _, ok := svc.createBrowser(rw, req, cfg); ok {
+		t.Fatal("expected createBrowser to fail on invalid annotations")
+	}
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rw.Code)
+	}
+}
+
+func TestCreateBrowserSetLabelsError(t *testing.T) {
+	svc := NewService(&fakeClient{}, ServiceConfig{Namespace: "ns"})
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	rw := httptest.NewRecorder()
+
+	cfg := sessionConfig{
+		SessionType:      sessionTypeMCP,
+		BrowserName:      "chromium",
+		BrowserVersion:   "123",
+		SelenosisOptions: map[string]any{"labels": "not-an-object"},
+	}
+	if _, ok := svc.createBrowser(rw, req, cfg); ok {
+		t.Fatal("expected createBrowser to fail on invalid labels")
+	}
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rw.Code)
 	}
 }

@@ -17,25 +17,28 @@ var (
 )
 
 type parseLimits struct {
-	MaxLabels     int
-	MaxContainers int
-	MaxEnvPerCont int
-	MaxValueLen   int
+	MaxLabels      int
+	MaxAnnotations int
+	MaxContainers  int
+	MaxEnvPerCont  int
+	MaxValueLen    int
 }
 
 func defaultParseLimits() parseLimits {
 	return parseLimits{
-		MaxLabels:     64,
-		MaxContainers: 16,
-		MaxEnvPerCont: 64,
-		MaxValueLen:   512,
+		MaxLabels:      64,
+		MaxAnnotations: 64,
+		MaxContainers:  16,
+		MaxEnvPerCont:  64,
+		MaxValueLen:    512,
 	}
 }
 
 func parseSelenosisOptions(q url.Values, limits parseLimits) (map[string]any, error) {
 	var (
-		labels     map[string]string
-		containers map[string]map[string]map[string]string
+		labels      map[string]string
+		annotations map[string]string
+		containers  map[string]map[string]map[string]string
 	)
 
 	last := func(vs []string) string {
@@ -79,6 +82,25 @@ func parseSelenosisOptions(q url.Values, limits parseLimits) (map[string]any, er
 			labels[k] = val
 			if limits.MaxLabels > 0 && len(labels) > limits.MaxLabels {
 				return nil, fmt.Errorf("too many labels (>%d)", limits.MaxLabels)
+			}
+
+		case "annotations":
+			if len(parts) != 2 {
+				continue
+			}
+
+			k := strings.TrimSpace(parts[1])
+			if k == "" || !reLabelKey.MatchString(k) {
+				return nil, fmt.Errorf("invalid annotation key %q", k)
+			}
+
+			if annotations == nil {
+				annotations = make(map[string]string)
+			}
+
+			annotations[k] = val
+			if limits.MaxAnnotations > 0 && len(annotations) > limits.MaxAnnotations {
+				return nil, fmt.Errorf("too many annotations (>%d)", limits.MaxAnnotations)
 			}
 
 		case "containers":
@@ -127,6 +149,10 @@ func parseSelenosisOptions(q url.Values, limits parseLimits) (map[string]any, er
 		out["labels"] = labels
 	}
 
+	if len(annotations) > 0 {
+		out["annotations"] = annotations
+	}
+
 	if len(containers) > 0 {
 		containersOut := map[string]any{}
 		for name, cfg := range containers {
@@ -144,22 +170,65 @@ func parseSelenosisOptions(q url.Values, limits parseLimits) (map[string]any, er
 	return out, nil
 }
 
-func setSelenosisOptions(ann map[string]string, opts map[string]any) (map[string]string, error) {
+type containerOption struct {
+	Env map[string]string `json:"env,omitempty"`
+}
+
+type selenosisOptions struct {
+	Labels      map[string]string          `json:"labels,omitempty"`
+	Annotations map[string]string          `json:"annotations,omitempty"`
+	Containers  map[string]containerOption `json:"containers,omitempty"`
+}
+
+func parseSelenosisOptionsMap(opts map[string]any) (selenosisOptions, error) {
+	var parsed selenosisOptions
+
 	if len(opts) == 0 {
-		return ann, nil
+		return parsed, nil
 	}
 
 	b, err := json.Marshal(opts)
 	if err != nil {
-		return ann, fmt.Errorf("marshal selenosis options: %w", err)
+		return parsed, fmt.Errorf("marshal selenosis options: %w", err)
 	}
 
-	if ann == nil {
-		ann = map[string]string{}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		return parsed, fmt.Errorf("invalid selenosis options: %w", err)
 	}
 
-	ann[browserv1.SelenosisOptionsAnnotationKey] = string(b)
-	return ann, nil
+	return parsed, nil
+}
+
+func setSelenosisLabels(template *browserv1.Browser, labels map[string]string) {
+	for k, v := range labels {
+		if template.ObjectMeta.Labels == nil {
+			template.ObjectMeta.Labels = map[string]string{}
+		}
+		template.ObjectMeta.Labels[k] = v
+	}
+}
+
+func setSelenosisAnnotations(template *browserv1.Browser, annotations map[string]string) {
+	for k, v := range annotations {
+		if template.ObjectMeta.Annotations == nil {
+			template.ObjectMeta.Annotations = map[string]string{}
+		}
+		template.ObjectMeta.Annotations[k] = v
+	}
+}
+
+func setSelenosisOptions(template *browserv1.Browser, containers map[string]containerOption) {
+	if len(containers) == 0 {
+		return
+	}
+
+	b, _ := json.Marshal(selenosisOptions{Containers: containers})
+
+	if template.ObjectMeta.Annotations == nil {
+		template.ObjectMeta.Annotations = map[string]string{}
+	}
+
+	template.ObjectMeta.Annotations[browserv1.SelenosisOptionsAnnotationKey] = string(b)
 }
 
 func dropMcpOptions(q url.Values) string {
@@ -171,7 +240,7 @@ func dropMcpOptions(q url.Values) string {
 
 func dropSelenosisOptions(q url.Values) url.Values {
 	for k := range q {
-		if strings.HasPrefix(k, "labels.") || strings.HasPrefix(k, "containers.") {
+		if strings.HasPrefix(k, "labels.") || strings.HasPrefix(k, "annotations.") || strings.HasPrefix(k, "containers.") {
 			delete(q, k)
 		}
 	}

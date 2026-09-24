@@ -70,6 +70,14 @@ const (
 	browserContextDone
 )
 
+type sessionType string
+
+const (
+	sessionTypeSelenium   sessionType = "selenium"
+	sessionTypePlaywright sessionType = "playwright"
+	sessionTypeMCP        sessionType = "mcp"
+)
+
 func NewService(client browserclient.Client, config ServiceConfig) *Service {
 	return &Service{
 		client: client,
@@ -113,15 +121,22 @@ func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	opts := processed.GetSelenosisOptions()
-	podIP, browserHostname, _, ok := s.createBrowser(rw, req, processed.GetBrowserName(), processed.GetBrowserVersion(), opts, writeCreateSessionWaitError)
+
+	startedBrowser, ok := s.createBrowser(rw, req, sessionConfig{
+		SessionType:      sessionTypeSelenium,
+		BrowserName:      processed.GetBrowserName(),
+		BrowserVersion:   processed.GetBrowserVersion(),
+		SelenosisOptions: opts,
+	})
+
 	if !ok {
 		return
 	}
 
 	log = log.With().
 		Dict("Browser", zerolog.Dict().
-			Str("ip", podIP).
-			Str("hostname", browserHostname)).
+			Str("ip", startedBrowser.PodIP).
+			Str("hostname", startedBrowser.Hostname)).
 		Logger()
 
 	log.Info().Msg("proxying session create request")
@@ -130,7 +145,7 @@ func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
 		r.Header.Set("X-Selenosis-External-URL", externalBaseURL(req).String())
 		r.URL = &url.URL{
 			Scheme: "http",
-			Host:   s.sidecarHost(podIP),
+			Host:   s.sidecarHost(startedBrowser.PodIP),
 			Path:   strings.TrimPrefix(req.URL.Path, wdHubPrefix),
 		}
 		r.Method = req.Method
@@ -152,7 +167,7 @@ func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
 			MaxInterval: defaultRetryMaxDelay,
 		}),
 		proxy.WithRequestModifier(reqModifier),
-		proxy.WithErrorHandler(createSessionProxyErrorHandler(log, podIP)),
+		proxy.WithErrorHandler(createSessionProxyErrorHandler(log, startedBrowser.PodIP)),
 	)
 	rp.ServeHTTP(rw, req)
 }
@@ -258,19 +273,24 @@ func (s *Service) Playwright(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	podIP, browserHostname, sessionUUID, ok := s.createBrowser(rw, req, name, version, opts, writePlaywrightWaitError)
+	startedBrowser, ok := s.createBrowser(rw, req, sessionConfig{
+		SessionType:      sessionTypePlaywright,
+		BrowserName:      name,
+		BrowserVersion:   version,
+		SelenosisOptions: opts,
+	})
 	if !ok {
 		return
 	}
 
 	query := dropSelenosisOptions(req.URL.Query())
-	query.Set("ipuuid", sessionUUID.String())
+	query.Set("ipuuid", startedBrowser.SessionUUID.String())
 	rawQuery := query.Encode()
 
 	resolver := func(r *http.Request) (*url.URL, error) {
 		return &url.URL{
 			Scheme:   "ws",
-			Host:     net.JoinHostPort(podIP, s.config.SidecarPort),
+			Host:     net.JoinHostPort(startedBrowser.PodIP, s.config.SidecarPort),
 			Path:     "/playwright",
 			RawQuery: rawQuery,
 		}, nil
@@ -278,8 +298,8 @@ func (s *Service) Playwright(rw http.ResponseWriter, req *http.Request) {
 
 	log.Info().
 		Dict("Browser", zerolog.Dict().
-			Str("ip", podIP).
-			Str("hostname", browserHostname)).
+			Str("ip", startedBrowser.PodIP).
+			Str("hostname", startedBrowser.Hostname)).
 		Msg("proxying playwright request")
 
 	rp := proxy.NewWebSocketReverseProxy(resolver,
@@ -360,17 +380,22 @@ func (s *Service) McpHandler(rw http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		podIP, browserHostname, _, ok := s.createBrowser(rw, req, name, version, selenosisOpts, writeMcpWaitError)
+		startedBrowser, ok := s.createBrowser(rw, req, sessionConfig{
+			SessionType:      sessionTypeMCP,
+			BrowserName:      name,
+			BrowserVersion:   version,
+			SelenosisOptions: selenosisOpts,
+		})
 		if !ok {
 			return
 		}
 
-		host := s.sidecarHost(podIP)
+		host := s.sidecarHost(startedBrowser.PodIP)
 
 		log.Info().
 			Dict("Browser", zerolog.Dict().
-				Str("ip", podIP).
-				Str("hostname", browserHostname)).
+				Str("ip", startedBrowser.PodIP).
+				Str("hostname", startedBrowser.Hostname)).
 			Msg("proxying mcp initialize request")
 
 		var body []byte
@@ -407,7 +432,7 @@ func (s *Service) McpHandler(rw http.ResponseWriter, req *http.Request) {
 				MaxInterval: defaultRetryMaxDelay,
 			}),
 			proxy.WithRequestModifier(reqModifier),
-			proxy.WithErrorHandler(mcpInitProxyErrorHandler(log, podIP)),
+			proxy.WithErrorHandler(mcpInitProxyErrorHandler(log, startedBrowser.PodIP)),
 		)
 		rp.ServeHTTP(rw, req)
 		return
@@ -452,7 +477,20 @@ func (s *Service) McpHandler(rw http.ResponseWriter, req *http.Request) {
 	rp.ServeHTTP(rw, req)
 }
 
-func (s *Service) createBrowser(rw http.ResponseWriter, req *http.Request, name, version string, opts map[string]any, writeWaitError func(http.ResponseWriter, *browserError)) (string, string, uuid.UUID, bool) {
+type sessionConfig struct {
+	SessionType      sessionType
+	BrowserName      string
+	BrowserVersion   string
+	SelenosisOptions map[string]any
+}
+
+type started struct {
+	PodIP       string
+	Hostname    string
+	SessionUUID uuid.UUID
+}
+
+func (s *Service) createBrowser(rw http.ResponseWriter, req *http.Request, cfg sessionConfig) (started, bool) {
 	log := logctx.FromContext(req.Context())
 
 	hostname := uuid.NewString()
@@ -462,23 +500,25 @@ func (s *Service) createBrowser(rw http.ResponseWriter, req *http.Request, name,
 			Name: hostname,
 		},
 		Spec: browserv1.BrowserSpec{
-			BrowserName:    name,
-			BrowserVersion: version,
+			BrowserName:    cfg.BrowserName,
+			BrowserVersion: cfg.BrowserVersion,
 		},
 	}
 
-	var err error
-	if len(opts) > 0 {
-		template.ObjectMeta.Annotations, err = setSelenosisOptions(template.ObjectMeta.Annotations, opts)
-		if err != nil {
-			log.Err(err).Msg("failed to set selenosis options annotation")
-			http.Error(rw, err.Error(), http.StatusBadRequest)
-			return "", "", uuid.UUID{}, false
-		}
+	opts, err := parseSelenosisOptionsMap(cfg.SelenosisOptions)
+	if err != nil {
+		log.Err(err).Msg("failed to parse selenosis options")
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return started{}, false
 	}
+
+	setSelenosisLabels(template, opts.Labels)
+	setSelenosisAnnotations(template, opts.Annotations)
+	setSelenosisOptions(template, opts.Containers)
 
 	setOwnerReference(req.Context(), template)
 	setHubLabel(req, template)
+	setSessionTypeAnnotation(template, cfg.SessionType)
 
 	log = log.With().
 		Dict("Browser", zerolog.Dict().
@@ -492,25 +532,29 @@ func (s *Service) createBrowser(rw http.ResponseWriter, req *http.Request, name,
 
 	podIP, waitErr := s.createBrowserAndWait(ctx, log, template)
 	if waitErr != nil {
-		writeWaitError(rw, waitErr)
-		return "", "", uuid.UUID{}, false
+		writeError(rw, cfg.SessionType, waitErr)
+		return started{}, false
 	}
 
 	podIp := net.ParseIP(podIP)
 	if podIp == nil {
 		log.Err(fmt.Errorf("invalid pod IP: %s", podIP)).Msg("failed to parse pod IP")
 		http.Error(rw, "failed to get browser IP", http.StatusInternalServerError)
-		return "", "", uuid.UUID{}, false
+		return started{}, false
 	}
 
 	sessionUUID, err := ipuuid.IPToUUID(podIp)
 	if err != nil {
 		log.Err(err).Str("podIP", podIP).Msg("failed to convert IP to UUID")
 		http.Error(rw, "failed to convert IP to UUID", http.StatusInternalServerError)
-		return "", "", uuid.UUID{}, false
+		return started{}, false
 	}
 
-	return podIP, hostname, sessionUUID, true
+	return started{
+		PodIP:       podIP,
+		Hostname:    hostname,
+		SessionUUID: sessionUUID,
+	}, true
 }
 
 func (s *Service) createBrowserAndWait(ctx context.Context, logger zerolog.Logger, template *browserv1.Browser) (string, *browserError) {
@@ -649,6 +693,14 @@ func setHubLabel(req *http.Request, template *browserv1.Browser) {
 	}
 
 	template.ObjectMeta.Labels[browserv1.SelenosisHubLabelKey] = hostname
+}
+
+func setSessionTypeAnnotation(template *browserv1.Browser, sessionType sessionType) {
+	if template.ObjectMeta.Annotations == nil {
+		template.ObjectMeta.Annotations = map[string]string{}
+	}
+
+	template.ObjectMeta.Annotations[browserv1.SelenosisSessionTypeAnnotationKey] = string(sessionType)
 }
 
 func isContainerRunning(browser *browserv1.Browser, name string) bool {

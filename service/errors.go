@@ -84,6 +84,17 @@ func (e *browserError) reason() error {
 	return ErrInternal
 }
 
+func writeError(rw http.ResponseWriter, st sessionType, err *browserError) {
+	switch st {
+	case sessionTypePlaywright:
+		writePlaywrightWaitError(rw, err)
+	case sessionTypeMCP:
+		writeMcpWaitError(rw, err)
+	default:
+		writeCreateSessionWaitError(rw, err)
+	}
+}
+
 func writeCreateSessionWaitError(rw http.ResponseWriter, waitErr *browserError) {
 	switch waitErr.kind {
 	case browserCreate:

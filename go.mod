@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	dario.cat/mergo v1.0.2
-	github.com/alcounit/browser-controller v1.0.0
+	github.com/alcounit/browser-controller v1.0.1
 	github.com/alcounit/browser-service v0.0.9
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-chi/chi/v5 v5.2.3
