@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alcounit/selenosis/v2/pkg/jsonrpc"
+	"github.com/alcounit/selenosis/v2/pkg/selenium"
 	"github.com/rs/zerolog"
 )
 
@@ -157,4 +159,73 @@ func TestMcpProxyErrorHandlerGeneric(t *testing.T) {
 	h(rw, httptest.NewRequest(http.MethodPost, "/", nil), errors.New("boom"))
 
 	assertMcpError(t, rw, http.StatusInternalServerError, -32603)
+}
+
+func TestWriteErrorDispatchesBySessionType(t *testing.T) {
+	waitErr := func() *browserError {
+		return &browserError{kind: browserNotReady, err: errors.New("browser not ready")}
+	}
+
+	tests := []struct {
+		name        string
+		sessionType sessionType
+		verify      func(*testing.T, *httptest.ResponseRecorder)
+	}{
+		{
+			name:        "selenium",
+			sessionType: sessionTypeSelenium,
+			verify: func(t *testing.T, rw *httptest.ResponseRecorder) {
+				t.Helper()
+				verifyResponseError(t, rw, http.StatusInternalServerError, selenium.ErrUnknown(waitErr().reason()))
+			},
+		},
+		{
+			name:        "playwright",
+			sessionType: sessionTypePlaywright,
+			verify: func(t *testing.T, rw *httptest.ResponseRecorder) {
+				t.Helper()
+				if rw.Code != http.StatusInternalServerError {
+					t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, rw.Code)
+				}
+				if got, want := rw.Body.String(), "browser not ready\n"; got != want {
+					t.Fatalf("body = %q, want %q", got, want)
+				}
+			},
+		},
+		{
+			name:        "mcp",
+			sessionType: sessionTypeMCP,
+			verify: func(t *testing.T, rw *httptest.ResponseRecorder) {
+				t.Helper()
+				assertMcpError(t, rw, http.StatusInternalServerError, jsonrpc.InternalError)
+				if !strings.Contains(rw.Body.String(), "browser not ready") {
+					t.Fatalf("body %q does not carry the wait error reason", rw.Body.String())
+				}
+			},
+		},
+		{
+			name:        "unknown session type falls back to selenium",
+			sessionType: sessionType("bogus"),
+			verify: func(t *testing.T, rw *httptest.ResponseRecorder) {
+				t.Helper()
+				verifyResponseError(t, rw, http.StatusInternalServerError, selenium.ErrUnknown(waitErr().reason()))
+			},
+		},
+		{
+			name:        "zero session type falls back to selenium",
+			sessionType: "",
+			verify: func(t *testing.T, rw *httptest.ResponseRecorder) {
+				t.Helper()
+				verifyResponseError(t, rw, http.StatusInternalServerError, selenium.ErrUnknown(waitErr().reason()))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rw := httptest.NewRecorder()
+			writeError(rw, tt.sessionType, waitErr())
+			tt.verify(t, rw)
+		})
+	}
 }
