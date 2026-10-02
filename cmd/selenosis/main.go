@@ -88,23 +88,30 @@ func main() {
 
 	selenium := chi.NewRouter()
 
-	selenium.Post("/session", svc.CreateSession)
+	selenium.Post("/session", svc.WebDriverNewSession)
 	selenium.Route("/session/{sessionId}", func(r chi.Router) {
-		r.HandleFunc("/*", svc.ProxySession)
+		r.HandleFunc("/*", svc.WebDriverProxy)
 	})
-	selenium.Get("/status", svc.SessionStatus)
+	selenium.Get("/status", svc.WebDriverStatus)
 
 	router.Mount("/", selenium)
 	router.Mount("/wd/hub", selenium)
 
-	router.Get("/playwright/{name}/{version}", svc.Playwright)
+	playwright := chi.NewRouter()
+	playwright.Get("/{name}/{version}", svc.PlaywrightConnect)
+	router.Mount("/playwright", playwright)
+
+	devtools := chi.NewRouter()
+	devtools.HandleFunc("/session/{sessionId}", svc.DevToolsAttach)
+	devtools.HandleFunc("/session/{sessionId}/*", svc.DevToolsAttach)
+	devtools.HandleFunc("/{name}/{version}", svc.DevToolsConnect)
+	devtools.HandleFunc("/{name}/{version}/*", svc.DevToolsConnect)
+	router.Mount("/devtools", devtools)
 
 	mcp := chi.NewRouter()
-
-	mcp.Post("/", svc.McpHandler)
-	mcp.Get("/", svc.McpHandler)
-	mcp.Delete("/", svc.McpHandler)
-
+	mcp.Post("/", svc.MCPServe)
+	mcp.Get("/", svc.MCPServe)
+	mcp.Delete("/", svc.MCPServe)
 	router.Mount("/mcp", mcp)
 
 	router.Route("/selenosis/v1/sessions/{sessionId}", func(r chi.Router) {

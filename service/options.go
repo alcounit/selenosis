@@ -66,11 +66,7 @@ func parseSelenosisOptions(q url.Values, limits parseLimits) (map[string]any, er
 		switch parts[0] {
 
 		case "labels":
-			if len(parts) != 2 {
-				continue
-			}
-
-			k := strings.TrimSpace(parts[1])
+			k := strings.TrimSpace(strings.SplitN(key, ".", 2)[1])
 			if k == "" || !reLabelKey.MatchString(k) {
 				return nil, fmt.Errorf("invalid label key %q", k)
 			}
@@ -85,11 +81,7 @@ func parseSelenosisOptions(q url.Values, limits parseLimits) (map[string]any, er
 			}
 
 		case "annotations":
-			if len(parts) != 2 {
-				continue
-			}
-
-			k := strings.TrimSpace(parts[1])
+			k := strings.TrimSpace(strings.SplitN(key, ".", 2)[1])
 			if k == "" || !reLabelKey.MatchString(k) {
 				return nil, fmt.Errorf("invalid annotation key %q", k)
 			}

@@ -60,8 +60,6 @@ func TestParseSelenosisOptionsIgnoresUnknownShape(t *testing.T) {
 	q := url.Values{
 		"":                             {"x"},
 		"justkey":                      {"x"},
-		"labels.a.b":                   {"x"},
-		"annotations.a.b":              {"x"},
 		"containers.browser.env":       {"x"},
 		"containers.browser.bad.DEBUG": {"x"},
 		"other.foo":                    {"x"},
@@ -73,6 +71,32 @@ func TestParseSelenosisOptionsIgnoresUnknownShape(t *testing.T) {
 	}
 	if len(opts) != 0 {
 		t.Fatalf("expected empty opts, got %#v", opts)
+	}
+}
+
+func TestParseSelenosisOptionsKeepsDottedKeys(t *testing.T) {
+	q := url.Values{
+		"labels.app.kubernetes.io/name":        {"browser"},
+		"annotations.selenosis.io/session.vnc": {"false"},
+		"annotations.example.com/team.owner":   {"qa"},
+	}
+
+	opts, err := parseSelenosisOptions(q, defaultParseLimits())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	labels, _ := opts["labels"].(map[string]string)
+	if labels["app.kubernetes.io/name"] != "browser" {
+		t.Fatalf("expected the dotted label key to survive, got %#v", opts["labels"])
+	}
+
+	annotations, _ := opts["annotations"].(map[string]string)
+	if annotations["selenosis.io/session.vnc"] != "false" {
+		t.Fatalf("expected selenosis.io/session.vnc to survive, got %#v", opts["annotations"])
+	}
+	if annotations["example.com/team.owner"] != "qa" {
+		t.Fatalf("expected the dotted annotation key to survive, got %#v", opts["annotations"])
 	}
 }
 

@@ -86,8 +86,8 @@ func (e *browserError) reason() error {
 
 func writeError(rw http.ResponseWriter, st sessionType, err *browserError) {
 	switch st {
-	case sessionTypePlaywright:
-		writePlaywrightWaitError(rw, err)
+	case sessionTypePlaywright, sessionTypeDevtools:
+		writeWSWaitError(rw, err)
 	case sessionTypeMCP:
 		writeMcpWaitError(rw, err)
 	default:
@@ -116,7 +116,7 @@ func writeCreateSessionWaitError(rw http.ResponseWriter, waitErr *browserError) 
 	}
 }
 
-func writePlaywrightWaitError(rw http.ResponseWriter, waitErr *browserError) {
+func writeWSWaitError(rw http.ResponseWriter, waitErr *browserError) {
 	switch waitErr.kind {
 	case browserCreate:
 		http.Error(rw, "failed to create browser resource", http.StatusInternalServerError)
