@@ -68,7 +68,7 @@ managed for you.
   <img src="architecture.svg" alt="selenosis architecture: a client opens a session against the stateless hub, which creates a Browser custom resource through browser-service; the browser-controller operator reconciles it into an ephemeral pod running the browser and a seleniferous sidecar, and the hub proxies session traffic to that pod. browser-ui observes events and streams live VNC." width="900">
 </p>
 
-1. A client opens a session against the hub (`POST /wd/hub/session`, `WS /playwright/...`, or `POST /mcp`).
+1. A client opens a session against the hub (`POST /wd/hub/session`, `WS /playwright/...`, `/devtools/...`, or `POST /mcp`).
 2. selenosis creates a `Browser` custom resource through **browser-service**.
 3. **browser-controller** reconciles that resource into exactly one pod, built from a reusable **BrowserConfig** template.
 4. Once the pod is ready, selenosis proxies all session traffic to the **seleniferous** sidecar inside it.
@@ -152,6 +152,7 @@ the chart has ready-to-apply `BrowserConfig` manifests for each:
 - **Moon images** (`quay.io/browser`) — including Playwright-specific CDP/BiDi variants.
 - **Playwright** (`mcr.microsoft.com/playwright`) — multi-browser WebSocket server (Chromium, Firefox, WebKit).
 - **Playwright MCP** (`mcr.microsoft.com/playwright/mcp`) — browser automation exposed over the Model Context Protocol.
+- **CDP-only images** (e.g. `chromedp/headless-shell`) — Chrome with a debugging port, driven over DevTools (Puppeteer, Playwright `connectOverCDP`).
 
 ---
 
@@ -164,6 +165,7 @@ sections further down and in the per-component READMEs.
 - **WebDriver BiDi** — request `webSocketUrl: true` in capabilities; the response returns a BiDi WebSocket URL.
 - **Chrome DevTools Protocol (CDP)** — transparently proxied for Chromium browsers.
 - **Playwright** — `WS /playwright/{name}/{version}`, with dynamic pod configuration via query parameters.
+- **DevTools** — `/devtools/{name}/{version}` for CDP-only images (Puppeteer, Playwright `connectOverCDP`, chrome-devtools-mcp).
 - **MCP (experimental)** — Streamable HTTP transport on `/mcp` for Playwright and Selenium MCP servers, designed for AI agents that drive real browsers.
 
 ---
@@ -193,8 +195,9 @@ time.
 }
 ```
 
-For the Playwright and MCP endpoints, the same options are passed as query parameters
+For the Playwright, DevTools and MCP endpoints, the same options are passed as query parameters
 (for example `?labels.team=qa&containers.seleniferous.env.SESSION_IDLE_TIMEOUT=5m`).
+Keys may contain dots, e.g. `?annotations.selenosis.io/session.vnc=true`.
 
 Under the hood the resolved options are attached to the `Browser` resource as the
 `selenosis.io/options` annotation and applied by the controller when the pod is created,
@@ -264,6 +267,8 @@ selenosis exposes Selenium-compatible endpoints on both `/` and `/wd/hub`.
 | `*` | `/session/{sessionId}/*` | Proxy all session traffic (HTTP and WebSocket). |
 | `GET` | `/status` or `/wd/hub/status` | Service status. |
 | `WS` | `/playwright/{name}/{version}` | Create and proxy a Playwright session. |
+| `WS`, `*` | `/devtools/{name}/{version}[/*]` | Create a DevTools (CDP) browser — a direct CDP WebSocket, or HTTP discovery such as `GET …/json/version`. |
+| `WS`, `*` | `/devtools/session/{sessionId}[/*]` | Reach an existing DevTools session — CDP WebSockets and `/json/*` calls. |
 | `POST` | `/mcp` | MCP Streamable HTTP — initialize (with `?browser=&version=`) or route by `Mcp-Session-Id`. |
 | `GET` | `/mcp` | MCP Streamable HTTP — server-initiated stream. |
 | `DELETE` | `/mcp` | Terminate an MCP session and tear down its browser. |
@@ -301,6 +306,17 @@ const browser = await chromium.connect({
 const page = await (await browser.newContext()).newPage();
 await page.goto('https://example.com');
 await browser.close();
+```
+
+### DevTools (Node)
+
+```javascript
+import { chromium } from 'playwright';
+
+const browser = await chromium.connectOverCDP('http://<selenosis-host>:4444/devtools/devtools-chrome/151.0');
+const page = await browser.contexts()[0].newPage();
+await page.goto('https://example.com');
+await browser.close(); // tears down the pod
 ```
 
 ### MCP (Node)
@@ -344,6 +360,16 @@ WebSocket and returns its URL in `capabilities.webSocketUrl`.
 
 Chromium-based browsers expose the Chrome DevTools Protocol; selenosis transparently
 proxies CDP traffic through the seleniferous sidecar.
+
+For **CDP-only images** (no WebDriver inside), `/devtools/{name}/{version}` starts a browser —
+over a direct WebSocket or HTTP discovery (`…/json/version`) — and the returned debugger URLs
+point at `/devtools/session/{sessionId}`, so follow-up connections land on the same pod. Use the
+mode your image supports: Chrome with a debugging port (e.g. `chromedp/headless-shell`) needs
+discovery, a WebSocket launcher (e.g. Moon) needs a direct WebSocket. Closing the browser
+connection tears the pod down.
+
+> Puppeteer `browserURL` drops the path prefix when it discovers the endpoint — use
+> `browserWSEndpoint` instead.
 
 ---
 
@@ -484,7 +510,7 @@ idle timeout) and distinguishes it from other proxy errors:
 
 For session-scoped and MCP endpoints, an unreachable pod returns `404` so a
 spec-compliant client can tell the session is gone and start a fresh one. WebSocket
-endpoints (BiDi, CDP, Playwright) aren't covered by this mapping — a failed upstream
+endpoints (BiDi, CDP, Playwright, DevTools) aren't covered by this mapping — a failed upstream
 dial simply closes the connection.
 
 </details>

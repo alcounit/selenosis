@@ -51,7 +51,7 @@ func TestCreateSessionNilBody(t *testing.T) {
 	req.Body = nil
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	verifyResponseError(t, rw, http.StatusBadRequest, selenium.ErrInvalidArgument(ErrMissingCapabilities))
 }
@@ -61,7 +61,7 @@ func TestCreateSessionReadBodyError(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", io.NopCloser(errorReader{}), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	verifyResponseError(t, rw, http.StatusBadRequest, selenium.ErrInvalidArgument(ErrReadRequestBody))
 }
@@ -71,7 +71,7 @@ func TestCreateSessionDecodeError(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString("{"), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	verifyResponseError(t, rw, http.StatusBadRequest, selenium.ErrInvalidArgument(ErrDecodeRequestBody))
 }
@@ -81,7 +81,7 @@ func TestCreateSessionCapabilitiesError(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(`{}`), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	verifyResponseError(t, rw, http.StatusBadRequest, selenium.ErrInvalidArgument(ErrCapabilityMatch))
 }
@@ -93,7 +93,7 @@ func TestCreateSessionCreateBrowserError(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.Error("failed to create browser", err))
 }
@@ -107,7 +107,7 @@ func TestCreateSessionEventsError(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.Error("failed to start browser event stream", err))
 }
@@ -126,7 +126,7 @@ func TestCreateSessionStreamClosed(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.ErrUnknown(ErrInternal))
 }
@@ -152,7 +152,7 @@ func TestCreateSessionFailedEvent(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.Error("browser failed to start", errors.New("nope")))
 }
@@ -172,7 +172,7 @@ func TestCreateSessionEventError(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.ErrUnknown(err))
 }
@@ -192,7 +192,7 @@ func TestCreateSessionContextDone(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil).WithContext(ctx)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.ErrUnknown(ErrInternal))
 }
@@ -213,7 +213,7 @@ func TestCreateSessionInvalidPodIP(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -249,7 +249,7 @@ func TestCreateSessionSuccess(t *testing.T) {
 	req.Host = "example.com"
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	if rw.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rw.Code)
@@ -281,7 +281,7 @@ func TestCreateSessionUsesBrowserNameFilter(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	if rw.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rw.Code)
@@ -326,7 +326,7 @@ func TestCreateSessionSelenosisOptionsAnnotation(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBodyWithOptions()), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	if rw.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rw.Code)
@@ -365,7 +365,7 @@ func TestProxySessionMissingId(t *testing.T) {
 	req := newRequestWithParams(http.MethodGet, "/wd/hub/session", nil, nil)
 	rw := httptest.NewRecorder()
 
-	svc.ProxySession(rw, req)
+	svc.WebDriverProxy(rw, req)
 
 	verifyResponseError(t, rw, http.StatusBadRequest, selenium.ErrInvalidArgument(errors.ErrUnsupported))
 }
@@ -375,7 +375,7 @@ func TestProxySessionInvalidUUID(t *testing.T) {
 	req := newRequestWithParams(http.MethodGet, "/wd/hub/session/bad", nil, map[string]string{"sessionId": "bad"})
 	rw := httptest.NewRecorder()
 
-	svc.ProxySession(rw, req)
+	svc.WebDriverProxy(rw, req)
 
 	verifyResponseError(t, rw, http.StatusBadRequest, selenium.ErrInvalidArgument(errors.ErrUnsupported))
 }
@@ -392,7 +392,7 @@ func TestProxySessionWebSocket(t *testing.T) {
 	req.Header.Set("Upgrade", "websocket")
 	rw := httptest.NewRecorder()
 
-	svc.ProxySession(rw, req)
+	svc.WebDriverProxy(rw, req)
 
 	if rw.Code != http.StatusBadGateway && rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 502 or 500, got %d", rw.Code)
@@ -416,7 +416,7 @@ func TestProxySessionHTTP(t *testing.T) {
 	req.Host = "example.com"
 	rw := httptest.NewRecorder()
 
-	svc.ProxySession(rw, req)
+	svc.WebDriverProxy(rw, req)
 
 	if gotReq == nil {
 		t.Fatal("expected transport to be called")
@@ -445,7 +445,7 @@ func TestProxySessionUpstreamUnreachable(t *testing.T) {
 	req := newRequestWithParams(http.MethodGet, "/wd/hub/session/"+sessionId+"/url", nil, map[string]string{"sessionId": sessionId})
 	rw := httptest.NewRecorder()
 
-	svc.ProxySession(rw, req)
+	svc.WebDriverProxy(rw, req)
 
 	if rw.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rw.Code)
@@ -469,7 +469,7 @@ func TestMcpHandlerUpstreamUnreachable(t *testing.T) {
 	req.Header.Set("Mcp-Session-Id", sessionId)
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	assertMcpError(t, rw, http.StatusNotFound, -32001)
 }
@@ -479,7 +479,7 @@ func TestSessionStatus(t *testing.T) {
 	req := newRequestWithParams(http.MethodGet, "/status", nil, nil)
 	rw := httptest.NewRecorder()
 
-	svc.SessionStatus(rw, req)
+	svc.WebDriverStatus(rw, req)
 
 	resp := rw.Result()
 	if resp.StatusCode != http.StatusOK {
@@ -502,7 +502,7 @@ func TestPlaywrightMissingParams(t *testing.T) {
 	req := newRequestWithParams(http.MethodGet, "/playwright", nil, nil)
 	rw := httptest.NewRecorder()
 
-	svc.Playwright(rw, req)
+	svc.PlaywrightConnect(rw, req)
 
 	if rw.Code != http.StatusNotFound {
 		t.Fatalf("expected status 404, got %d", rw.Code)
@@ -519,7 +519,7 @@ func TestPlaywrightParseOptionsError(t *testing.T) {
 	)
 	rw := httptest.NewRecorder()
 
-	svc.Playwright(rw, req)
+	svc.PlaywrightConnect(rw, req)
 
 	if rw.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", rw.Code)
@@ -540,7 +540,7 @@ func TestPlaywrightCreateBrowserError(t *testing.T) {
 	)
 	rw := httptest.NewRecorder()
 
-	svc.Playwright(rw, req)
+	svc.PlaywrightConnect(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -564,7 +564,7 @@ func TestPlaywrightEventsError(t *testing.T) {
 	)
 	rw := httptest.NewRecorder()
 
-	svc.Playwright(rw, req)
+	svc.PlaywrightConnect(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -593,7 +593,7 @@ func TestPlaywrightStreamClosed(t *testing.T) {
 	)
 	rw := httptest.NewRecorder()
 
-	svc.Playwright(rw, req)
+	svc.PlaywrightConnect(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -626,7 +626,7 @@ func TestPlaywrightFailedEvent(t *testing.T) {
 	)
 	rw := httptest.NewRecorder()
 
-	svc.Playwright(rw, req)
+	svc.PlaywrightConnect(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -655,7 +655,7 @@ func TestPlaywrightEventError(t *testing.T) {
 	)
 	rw := httptest.NewRecorder()
 
-	svc.Playwright(rw, req)
+	svc.PlaywrightConnect(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -681,7 +681,7 @@ func TestPlaywrightContextDone(t *testing.T) {
 	req = setParams(req, map[string]string{"name": "chromium", "version": "123"})
 	rw := httptest.NewRecorder()
 
-	svc.Playwright(rw, req)
+	svc.PlaywrightConnect(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -712,7 +712,7 @@ func TestPlaywrightInvalidPodIP(t *testing.T) {
 	)
 	rw := httptest.NewRecorder()
 
-	svc.Playwright(rw, req)
+	svc.PlaywrightConnect(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -744,7 +744,7 @@ func TestPlaywrightNilBrowserEventIsIgnored(t *testing.T) {
 	)
 	rw := httptest.NewRecorder()
 
-	svc.Playwright(rw, req)
+	svc.PlaywrightConnect(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -783,7 +783,7 @@ func TestPlaywrightProxyAttemptAndOwnerLabel(t *testing.T) {
 	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
 	rw := httptest.NewRecorder()
 
-	svc.Playwright(rw, req)
+	svc.PlaywrightConnect(rw, req)
 
 	if rw.Code != http.StatusBadGateway && rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 502 or 500, got %d", rw.Code)
@@ -802,7 +802,7 @@ func TestPlaywrightProxyAttemptAndOwnerLabel(t *testing.T) {
 	}
 }
 
-func startSidecarQueryRecorder(t *testing.T) (string, <-chan *url.URL, func()) {
+func startSidecarRequestRecorder(t *testing.T) (string, <-chan *http.Request, func()) {
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -810,11 +810,10 @@ func startSidecarQueryRecorder(t *testing.T) (string, <-chan *url.URL, func()) {
 		t.Fatalf("failed to listen on local port: %v", err)
 	}
 
-	captured := make(chan *url.URL, 4)
+	captured := make(chan *http.Request, 4)
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		target := *r.URL
 		select {
-		case captured <- &target:
+		case captured <- r.Clone(context.Background()):
 		default:
 		}
 		w.WriteHeader(http.StatusBadRequest)
@@ -846,7 +845,7 @@ func startSidecarQueryRecorder(t *testing.T) (string, <-chan *url.URL, func()) {
 func playwrightUpstreamURL(t *testing.T, target string) *url.URL {
 	t.Helper()
 
-	port, captured, shutdown := startSidecarQueryRecorder(t)
+	port, captured, shutdown := startSidecarRequestRecorder(t)
 	defer shutdown()
 
 	stream := newFakeStream()
@@ -867,11 +866,11 @@ func playwrightUpstreamURL(t *testing.T, target string) *url.URL {
 	req = setParams(req, map[string]string{"name": "chromium", "version": "123"})
 	rw := httptest.NewRecorder()
 
-	svc.Playwright(rw, req)
+	svc.PlaywrightConnect(rw, req)
 
 	select {
 	case upstream := <-captured:
-		return upstream
+		return upstream.URL
 	case <-time.After(2 * time.Second):
 		t.Fatal("sidecar was never called")
 		return nil
@@ -881,8 +880,8 @@ func playwrightUpstreamURL(t *testing.T, target string) *url.URL {
 func TestPlaywrightForwardsClientQueryToSidecar(t *testing.T) {
 	upstream := playwrightUpstreamURL(t, "/playwright?headless=false&timeout=30000&labels.env=test&containers.browser.env.DEBUG=1")
 
-	if upstream.Path != "/playwright" {
-		t.Fatalf("unexpected sidecar path: %q", upstream.Path)
+	if want := "/playwright/" + mcpSessionID(t, "127.0.0.1"); upstream.Path != want {
+		t.Fatalf("expected sidecar path %q, got %q", want, upstream.Path)
 	}
 
 	q := upstream.Query()
@@ -898,25 +897,24 @@ func TestPlaywrightForwardsClientQueryToSidecar(t *testing.T) {
 	if _, ok := q["containers.browser.env.DEBUG"]; ok {
 		t.Fatal("expected containers.* to be dropped")
 	}
-	if want := mcpSessionID(t, "127.0.0.1"); q.Get("ipuuid") != want {
-		t.Fatalf("expected ipuuid %q, got %q", want, q.Get("ipuuid"))
+	if _, ok := q["ipuuid"]; ok {
+		t.Fatal("expected no ipuuid in the query, the session travels in the path")
 	}
 }
 
-func TestPlaywrightOverridesClientSuppliedIPUUID(t *testing.T) {
-	upstream := playwrightUpstreamURL(t, "/playwright?ipuuid=deadbeef&headless=false")
-
-	got := upstream.Query()["ipuuid"]
-	if want := mcpSessionID(t, "127.0.0.1"); len(got) != 1 || got[0] != want {
-		t.Fatalf("expected a single generated ipuuid %q, got %#v", want, got)
-	}
-}
-
-func TestPlaywrightForwardsOnlyIPUUIDWhenQueryEmpty(t *testing.T) {
+func TestPlaywrightSendsEmptyQueryWhenClientQueryEmpty(t *testing.T) {
 	upstream := playwrightUpstreamURL(t, "/playwright")
 
-	if want := "ipuuid=" + mcpSessionID(t, "127.0.0.1"); upstream.RawQuery != want {
-		t.Fatalf("expected raw query %q, got %q", want, upstream.RawQuery)
+	if upstream.RawQuery != "" {
+		t.Fatalf("expected an empty raw query, got %q", upstream.RawQuery)
+	}
+}
+
+func TestPlaywrightPreservesRawQueryWithoutOptions(t *testing.T) {
+	upstream := playwrightUpstreamURL(t, "/playwright?b=2&a=1")
+
+	if upstream.RawQuery != "b=2&a=1" {
+		t.Fatalf("expected the raw query to reach the sidecar untouched, got %q", upstream.RawQuery)
 	}
 }
 
@@ -930,6 +928,506 @@ func TestPlaywrightPreservesRepeatedAndEncodedValues(t *testing.T) {
 	}
 	if q.Get("note") != "a b&c" {
 		t.Fatalf("expected encoded value to survive, got %q", q.Get("note"))
+	}
+}
+
+func devtoolsUpstreamRequest(t *testing.T, target string, tail string, websocket bool) *http.Request {
+	t.Helper()
+
+	port, captured, shutdown := startSidecarRequestRecorder(t)
+	defer shutdown()
+
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{Browser: runningBrowser("127.0.0.1")}
+
+	svc := NewService(&fakeClient{
+		stream: stream,
+		createResult: &browserv1.Browser{
+			ObjectMeta: metav1.ObjectMeta{Name: "br"},
+		},
+	}, ServiceConfig{
+		Namespace:           "ns",
+		SidecarPort:         port,
+		BrowserStartTimeout: time.Second,
+	})
+
+	params := map[string]string{"name": "chrome", "version": "140.0"}
+	if tail != "" {
+		params["*"] = tail
+	}
+
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req = setParams(req, params)
+	req.Host = "selenosis.example.com"
+	if websocket {
+		req.Header.Set("Connection", "Upgrade")
+		req.Header.Set("Upgrade", "websocket")
+		req.Header.Set("Sec-WebSocket-Version", "13")
+		req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	}
+	rw := httptest.NewRecorder()
+
+	svc.DevToolsConnect(rw, req)
+
+	select {
+	case upstream := <-captured:
+		return upstream
+	case <-time.After(2 * time.Second):
+		t.Fatal("sidecar was never called")
+		return nil
+	}
+}
+
+func TestDevToolsConnectMissingParams(t *testing.T) {
+	svc := NewService(&fakeClient{}, ServiceConfig{})
+	req := newRequestWithParams(http.MethodGet, "/devtools", nil, nil)
+	rw := httptest.NewRecorder()
+
+	svc.DevToolsConnect(rw, req)
+
+	if rw.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d", rw.Code)
+	}
+}
+
+func TestDevToolsConnectParseOptionsError(t *testing.T) {
+	svc := NewService(&fakeClient{}, ServiceConfig{})
+	req := newRequestWithParams(
+		http.MethodGet,
+		"/devtools?labels.bad!=x",
+		nil,
+		map[string]string{"name": "chrome", "version": "140.0"},
+	)
+	rw := httptest.NewRecorder()
+
+	svc.DevToolsConnect(rw, req)
+
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "invalid label key") {
+		t.Fatalf("expected parse error, got %q", rw.Body.String())
+	}
+}
+
+func TestDevToolsConnectCreateBrowserErrorIsPlainText(t *testing.T) {
+	fc := &fakeClient{createErr: errors.New("boom")}
+	svc := NewService(fc, ServiceConfig{Namespace: "ns"})
+	req := newRequestWithParams(
+		http.MethodGet,
+		"/devtools",
+		nil,
+		map[string]string{"name": "chrome", "version": "140.0"},
+	)
+	rw := httptest.NewRecorder()
+
+	svc.DevToolsConnect(rw, req)
+
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rw.Code)
+	}
+	if ct := rw.Result().Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Fatalf("expected text/plain error response, got %q", ct)
+	}
+	if !strings.Contains(rw.Body.String(), "failed to create browser resource") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestDevToolsConnectSetsSessionTypeAnnotation(t *testing.T) {
+	stream := newFakeStream()
+	stream.events <- &event.BrowserEvent{Browser: runningBrowser("127.0.0.1")}
+
+	fc := &captureClient{
+		fakeClient: fakeClient{
+			stream: stream,
+			createResult: &browserv1.Browser{
+				ObjectMeta: metav1.ObjectMeta{Name: "br"},
+			},
+		},
+	}
+	svc := NewService(fc, ServiceConfig{
+		Namespace:           "ns",
+		SidecarPort:         "4445",
+		BrowserStartTimeout: time.Second,
+	})
+
+	req := newRequestWithParams(
+		http.MethodGet,
+		"/devtools",
+		nil,
+		map[string]string{"name": "chrome", "version": "140.0"},
+	)
+	rw := httptest.NewRecorder()
+
+	svc.DevToolsConnect(rw, req)
+
+	if fc.created == nil {
+		t.Fatal("expected browser to be created")
+	}
+	if got := fc.created.ObjectMeta.Annotations[browserv1.SelenosisSessionTypeAnnotationKey]; got != string(sessionTypeDevtools) {
+		t.Fatalf("%s = %q, want %q", browserv1.SelenosisSessionTypeAnnotationKey, got, sessionTypeDevtools)
+	}
+}
+
+func TestDevToolsConnectForwardsToSidecar(t *testing.T) {
+	upstream := devtoolsUpstreamRequest(t, "/devtools/chrome/140.0?headless=false&labels.env=test", "", false)
+
+	sessionId := mcpSessionID(t, "127.0.0.1")
+	if want := "/devtools/" + sessionId; upstream.URL.Path != want {
+		t.Fatalf("expected the sidecar to be asked for %q, got %q", want, upstream.URL.Path)
+	}
+
+	q := upstream.URL.Query()
+	if _, ok := q["ipuuid"]; ok {
+		t.Fatal("expected no ipuuid in the query, the session travels in the path")
+	}
+	if q.Get("headless") != "false" {
+		t.Fatalf("expected headless=false to reach the sidecar, got %q", q.Get("headless"))
+	}
+	if _, ok := q["labels.env"]; ok {
+		t.Fatal("expected labels.* to be dropped")
+	}
+	if got := upstream.Header.Get("X-Selenosis-External-URL"); got != "http://selenosis.example.com" {
+		t.Fatalf("unexpected external url header: %q", got)
+	}
+}
+
+func TestDevToolsConnectForwardsTail(t *testing.T) {
+	upstream := devtoolsUpstreamRequest(t, "/devtools/chrome/140.0/json/version", "json/version", false)
+
+	if want := "/devtools/" + mcpSessionID(t, "127.0.0.1") + "/json/version"; upstream.URL.Path != want {
+		t.Fatalf("expected sidecar path %q, got %q", want, upstream.URL.Path)
+	}
+}
+
+func TestDevToolsConnectPreservesRawQueryWithoutOptions(t *testing.T) {
+	upstream := devtoolsUpstreamRequest(t, "/devtools/chrome/140.0/json/new?https://example.com", "json/new", false)
+
+	if upstream.URL.RawQuery != "https://example.com" {
+		t.Fatalf("expected the raw query to reach the sidecar untouched, got %q", upstream.URL.RawQuery)
+	}
+}
+
+func TestDevToolsConnectForwardsWebSocket(t *testing.T) {
+	upstream := devtoolsUpstreamRequest(t, "/devtools/chrome/140.0?headless=false", "", true)
+
+	if want := "/devtools/" + mcpSessionID(t, "127.0.0.1"); upstream.URL.Path != want {
+		t.Fatalf("expected sidecar path %q, got %q", want, upstream.URL.Path)
+	}
+	if !strings.EqualFold(upstream.Header.Get("Upgrade"), "websocket") {
+		t.Fatalf("expected the sidecar to receive a websocket upgrade, got %q", upstream.Header.Get("Upgrade"))
+	}
+	if upstream.URL.Query().Get("headless") != "false" {
+		t.Fatalf("expected the client query to reach the sidecar, got %q", upstream.URL.RawQuery)
+	}
+}
+
+func TestDevToolsConnectRetriesRefusedSidecar(t *testing.T) {
+	var attempts int
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		if attempts < 3 {
+			return nil, refusedDialErr()
+		}
+		return response(http.StatusOK, `{"webSocketDebuggerUrl":"ws://selenosis.example.com/devtools/session/id"}`), nil
+	})
+
+	setTestTransport(t, rt)
+	svc := NewService(&fakeClient{
+		stream:       runningStream("127.0.0.1"),
+		createResult: &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Name: "br"}},
+	}, ServiceConfig{
+		Namespace:            "ns",
+		SidecarPort:          "4445",
+		BrowserStartTimeout:  time.Second,
+		SessionCreateTimeout: 5 * time.Second,
+	})
+
+	req := newRequestWithParams(
+		http.MethodGet,
+		"/devtools",
+		nil,
+		map[string]string{"name": "chrome", "version": "140.0"},
+	)
+	rw := httptest.NewRecorder()
+
+	svc.DevToolsConnect(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("expected the refused dial to be retried until the sidecar answers, got %d: %s", rw.Code, rw.Body.String())
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts, got %d", attempts)
+	}
+}
+
+func TestDevToolsConnectUnreachableSidecarIsNotFound(t *testing.T) {
+	setTestTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, refusedDialErr()
+	}))
+
+	svc := NewService(&fakeClient{
+		stream:       runningStream("127.0.0.1"),
+		createResult: &browserv1.Browser{ObjectMeta: metav1.ObjectMeta{Name: "br"}},
+	}, ServiceConfig{
+		Namespace:            "ns",
+		SidecarPort:          "4445",
+		BrowserStartTimeout:  time.Second,
+		SessionCreateTimeout: 200 * time.Millisecond,
+	})
+
+	req := newRequestWithParams(
+		http.MethodGet,
+		"/devtools",
+		nil,
+		map[string]string{"name": "chrome", "version": "140.0"},
+	)
+	rw := httptest.NewRecorder()
+
+	svc.DevToolsConnect(rw, req)
+
+	if rw.Code != http.StatusNotFound {
+		t.Fatalf("expected an unreachable pod to map to 404, got %d: %s", rw.Code, rw.Body.String())
+	}
+}
+
+func TestBrowserQuery(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "empty", raw: "", want: ""},
+		{name: "no options keeps raw query", raw: "b=2&a=1", want: "b=2&a=1"},
+		{name: "keyless query stays untouched", raw: "https://example.com", want: "https://example.com"},
+		{name: "options are dropped", raw: "headless=false&labels.env=test&annotations.a=b&containers.x=y", want: "headless=false"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := browserQuery(&url.URL{RawQuery: tt.raw}); got != tt.want {
+				t.Fatalf("browserQuery(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDevToolsRoutesSeparateSessionsFromBrowsers(t *testing.T) {
+	var gotHandler, gotSession, gotName, gotVersion, gotTail string
+	record := func(handler string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			gotHandler = handler
+			gotSession = chi.URLParam(r, "sessionId")
+			gotName = chi.URLParam(r, "name")
+			gotVersion = chi.URLParam(r, "version")
+			gotTail = chi.URLParam(r, "*")
+		}
+	}
+
+	devtools := chi.NewRouter()
+	devtools.HandleFunc("/session/{sessionId}", record("attach"))
+	devtools.HandleFunc("/session/{sessionId}/*", record("attach"))
+	devtools.HandleFunc("/{name}/{version}", record("connect"))
+	devtools.HandleFunc("/{name}/{version}/*", record("connect"))
+	router := chi.NewRouter()
+	router.Mount("/devtools", devtools)
+
+	tests := []struct {
+		path    string
+		handler string
+		session string
+		name    string
+		version string
+		tail    string
+	}{
+		{path: "/devtools/session/abc", handler: "attach", session: "abc"},
+		{path: "/devtools/session/abc/json/version", handler: "attach", session: "abc", tail: "json/version"},
+		{path: "/devtools/chrome/140.0", handler: "connect", name: "chrome", version: "140.0"},
+		{path: "/devtools/chrome/140.0/json/version", handler: "connect", name: "chrome", version: "140.0", tail: "json/version"},
+		{path: "/devtools/chrome", handler: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			gotHandler, gotSession, gotName, gotVersion, gotTail = "", "", "", "", ""
+			rw := httptest.NewRecorder()
+			router.ServeHTTP(rw, httptest.NewRequest(http.MethodGet, tt.path, nil))
+
+			if gotHandler != tt.handler {
+				t.Fatalf("handler = %q, want %q (status %d)", gotHandler, tt.handler, rw.Code)
+			}
+			if tt.handler == "" && rw.Code != http.StatusNotFound {
+				t.Fatalf("expected 404, got %d", rw.Code)
+			}
+			if gotSession != tt.session || gotName != tt.name || gotVersion != tt.version || gotTail != tt.tail {
+				t.Fatalf("params = session %q name %q version %q tail %q", gotSession, gotName, gotVersion, gotTail)
+			}
+		})
+	}
+}
+
+func TestDevToolsAttachMissingSessionId(t *testing.T) {
+	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4445"})
+	req := newRequestWithParams(http.MethodGet, "/devtools/session/", nil, nil)
+	rw := httptest.NewRecorder()
+
+	svc.DevToolsAttach(rw, req)
+
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "missing required url param") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func TestDevToolsAttachInvalidSessionId(t *testing.T) {
+	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4445"})
+	req := newRequestWithParams(http.MethodGet, "/devtools/session/chrome", nil, map[string]string{"sessionId": "chrome"})
+	rw := httptest.NewRecorder()
+
+	svc.DevToolsAttach(rw, req)
+
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rw.Code)
+	}
+	body := rw.Body.String()
+	if !strings.Contains(body, "invalid url param") {
+		t.Fatalf("expected the body to say the param is invalid, not missing, got %q", body)
+	}
+	if !strings.Contains(body, "/devtools/session/{sessionId}") {
+		t.Fatalf("expected the attach url form in the body, got %q", body)
+	}
+}
+
+func TestDevToolsAttachRejectsPathEscapingTheSession(t *testing.T) {
+	sessionId := mcpSessionID(t, "127.0.0.1")
+
+	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4445"})
+	req := newRequestWithParams(
+		http.MethodGet,
+		"/devtools/session/"+sessionId+"/../../json/version",
+		nil,
+		map[string]string{"sessionId": sessionId, "*": "../../json/version"},
+	)
+	rw := httptest.NewRecorder()
+
+	svc.DevToolsAttach(rw, req)
+
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rw.Code)
+	}
+	if !strings.Contains(rw.Body.String(), "invalid devtools path") {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+}
+
+func devtoolsAttachUpstream(t *testing.T, target string, params map[string]string, websocket bool) *http.Request {
+	t.Helper()
+
+	port, captured, shutdown := startSidecarRequestRecorder(t)
+	defer shutdown()
+
+	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: port})
+	req := newRequestWithParams(http.MethodGet, target, nil, params)
+	req.Host = "selenosis.example.com"
+	if websocket {
+		req.Header.Set("Connection", "Upgrade")
+		req.Header.Set("Upgrade", "websocket")
+		req.Header.Set("Sec-WebSocket-Version", "13")
+		req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	}
+	rw := httptest.NewRecorder()
+
+	svc.DevToolsAttach(rw, req)
+
+	select {
+	case upstream := <-captured:
+		return upstream
+	case <-time.After(2 * time.Second):
+		t.Fatal("sidecar was never called")
+		return nil
+	}
+}
+
+func TestDevToolsAttachSessionRootKeepsProtocol(t *testing.T) {
+	sessionId := mcpSessionID(t, "127.0.0.1")
+
+	for _, ws := range []bool{true, false} {
+		upstream := devtoolsAttachUpstream(
+			t,
+			"/devtools/session/"+sessionId,
+			map[string]string{"sessionId": sessionId},
+			ws,
+		)
+
+		if want := "/devtools/session/" + sessionId; upstream.URL.Path != want {
+			t.Fatalf("websocket=%v: expected sidecar path %q, got %q", ws, want, upstream.URL.Path)
+		}
+		if got := strings.EqualFold(upstream.Header.Get("Upgrade"), "websocket"); got != ws {
+			t.Fatalf("websocket=%v: upgrade forwarded = %v", ws, got)
+		}
+	}
+}
+
+func TestDevToolsAttachForwardsChromePathsVerbatim(t *testing.T) {
+	sessionId := mcpSessionID(t, "127.0.0.1")
+
+	tests := []struct {
+		name string
+		rest string
+		ws   bool
+	}{
+		{name: "page target", rest: "devtools/page/AB12", ws: true},
+		{name: "browser target", rest: "devtools/browser/GUID-1", ws: true},
+		{name: "json version", rest: "json/version", ws: false},
+		{name: "json list", rest: "json/list", ws: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := devtoolsAttachUpstream(
+				t,
+				"/devtools/session/"+sessionId+"/"+tt.rest,
+				map[string]string{"sessionId": sessionId, "*": tt.rest},
+				tt.ws,
+			)
+
+			if want := "/devtools/session/" + sessionId + "/" + tt.rest; upstream.URL.Path != want {
+				t.Fatalf("expected sidecar path %q, got %q", want, upstream.URL.Path)
+			}
+		})
+	}
+}
+
+func TestDevToolsAttachPreservesClientQuery(t *testing.T) {
+	sessionId := mcpSessionID(t, "127.0.0.1")
+
+	upstream := devtoolsAttachUpstream(
+		t,
+		"/devtools/session/"+sessionId+"/json/new?https://example.com",
+		map[string]string{"sessionId": sessionId, "*": "json/new"},
+		false,
+	)
+
+	if upstream.URL.RawQuery != "https://example.com" {
+		t.Fatalf("expected the raw client query to reach the sidecar, got %q", upstream.URL.RawQuery)
+	}
+}
+
+func TestDevToolsAttachHTTPCarriesExternalURL(t *testing.T) {
+	sessionId := mcpSessionID(t, "127.0.0.1")
+
+	upstream := devtoolsAttachUpstream(
+		t,
+		"/devtools/session/"+sessionId+"/json/version",
+		map[string]string{"sessionId": sessionId, "*": "json/version"},
+		false,
+	)
+
+	if got := upstream.Header.Get("X-Selenosis-External-URL"); got != "http://selenosis.example.com" {
+		t.Fatalf("expected the sidecar to learn the external url, got %q", got)
 	}
 }
 
@@ -972,7 +1470,7 @@ func TestMcpHandlerInitMissingParams(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
 			rw := httptest.NewRecorder()
 
-			svc.McpHandler(rw, req)
+			svc.MCPServe(rw, req)
 
 			assertMcpError(t, rw, http.StatusBadRequest, jsonrpc.InvalidParams)
 		})
@@ -984,7 +1482,7 @@ func TestMcpHandlerInitParseOptionsError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123&labels.bad!=x", nil)
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if rw.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", rw.Code)
@@ -1000,7 +1498,7 @@ func TestMcpHandlerInitCreateBrowserError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", nil)
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -1016,7 +1514,7 @@ func TestMcpHandlerInitEventsError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", nil)
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -1038,7 +1536,7 @@ func TestMcpHandlerInitStreamClosed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", nil)
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -1061,7 +1559,7 @@ func TestMcpHandlerInitFailedEvent(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", nil)
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -1083,7 +1581,7 @@ func TestMcpHandlerInitContextDone(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", nil).WithContext(ctx)
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -1102,7 +1600,7 @@ func TestMcpHandlerInitInvalidPodIP(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", nil)
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -1135,7 +1633,7 @@ func TestMcpHandlerInitSuccess(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", nil).WithContext(ctx)
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if rw.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rw.Code)
@@ -1179,7 +1677,7 @@ func TestMcpHandlerInitSelenosisOptions(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123&labels.env=test", nil)
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if rw.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rw.Code)
@@ -1261,7 +1759,7 @@ func TestMcpHandlerMissingHeaderGet(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	assertMcpError(t, rw, http.StatusBadRequest, jsonrpc.InvalidParams)
 }
@@ -1271,7 +1769,7 @@ func TestMcpHandlerMissingHeaderDelete(t *testing.T) {
 	req := httptest.NewRequest(http.MethodDelete, "/mcp", nil)
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	assertMcpError(t, rw, http.StatusBadRequest, jsonrpc.InvalidParams)
 }
@@ -1282,7 +1780,7 @@ func TestMcpHandlerInvalidHeader(t *testing.T) {
 	req.Header.Set("Mcp-Session-Id", "not-a-uuid")
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	assertMcpError(t, rw, http.StatusBadRequest, jsonrpc.InvalidParams)
 }
@@ -1298,7 +1796,7 @@ func TestMcpHandlerRoutesToMcp(t *testing.T) {
 	req := mcpProxyRequest(t, http.MethodPost, "/mcp")
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if gotReq == nil {
 		t.Fatal("expected transport to be called")
@@ -1322,7 +1820,7 @@ func TestMcpHandlerGetRoutesToMcp(t *testing.T) {
 	req := mcpProxyRequest(t, http.MethodGet, "/mcp")
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if gotReq == nil {
 		t.Fatal("expected transport to be called")
@@ -1343,7 +1841,7 @@ func TestMcpHandlerDeleteRoutesToMcp(t *testing.T) {
 	req := mcpProxyRequest(t, http.MethodDelete, "/mcp")
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if gotReq == nil {
 		t.Fatal("expected transport to be called")
@@ -1367,7 +1865,7 @@ func TestMcpHandlerPreservesQueryParams(t *testing.T) {
 	req := mcpProxyRequest(t, http.MethodPost, "/mcp?foo=bar&baz=qux")
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if gotReq == nil {
 		t.Fatal("expected transport to be called")
@@ -1400,7 +1898,7 @@ func mcpInitUpstreamURL(t *testing.T, target string) *url.URL {
 	})
 
 	rw := httptest.NewRecorder()
-	svc.McpHandler(rw, httptest.NewRequest(http.MethodPost, target, nil))
+	svc.MCPServe(rw, httptest.NewRequest(http.MethodPost, target, nil))
 
 	if gotReq == nil {
 		t.Fatal("expected transport to be called")
@@ -1420,7 +1918,7 @@ func mcpRoutedUpstreamURL(t *testing.T, target string) *url.URL {
 	svc := NewService(&fakeClient{}, ServiceConfig{SidecarPort: "4444"})
 
 	rw := httptest.NewRecorder()
-	svc.McpHandler(rw, mcpProxyRequest(t, http.MethodPost, target))
+	svc.MCPServe(rw, mcpProxyRequest(t, http.MethodPost, target))
 
 	if gotReq == nil {
 		t.Fatal("expected transport to be called")
@@ -1489,7 +1987,7 @@ func TestMcpHandlerPreservesHeaders(t *testing.T) {
 	req.Header.Set("X-Custom-Header", "custom-value")
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if gotReq == nil {
 		t.Fatal("expected transport to be called")
@@ -1677,7 +2175,7 @@ func TestWriteCreateSessionWaitError(t *testing.T) {
 	}
 }
 
-func TestWritePlaywrightWaitError(t *testing.T) {
+func TestWriteWSWaitError(t *testing.T) {
 	tests := []struct {
 		name     string
 		waitErr  *browserError
@@ -1728,7 +2226,7 @@ func TestWritePlaywrightWaitError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rw := httptest.NewRecorder()
-			writePlaywrightWaitError(rw, tt.waitErr)
+			writeWSWaitError(rw, tt.waitErr)
 			if rw.Code != http.StatusInternalServerError {
 				t.Fatalf("expected status 500, got %d", rw.Code)
 			}
@@ -1973,7 +2471,7 @@ func TestCreateSessionConcurrent(t *testing.T) {
 			req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 			rw := httptest.NewRecorder()
 
-			svc.CreateSession(rw, req)
+			svc.WebDriverNewSession(rw, req)
 
 			if rw.Code != http.StatusOK {
 				t.Errorf("expected status 200, got %d", rw.Code)
@@ -2078,7 +2576,7 @@ func TestCreateSessionErrorStreamClosed(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.ErrUnknown(ErrInternal))
 }
@@ -2099,7 +2597,7 @@ func TestCreateSessionEventStreamClosed(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	verifyResponseError(t, rw, http.StatusInternalServerError, selenium.ErrUnknown(ErrInternal))
 }
@@ -2182,7 +2680,7 @@ func TestCreateBrowserTimesOutWhileSeleniferousNeverRuns(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	verifyResponseError(t, rw, http.StatusInternalServerError,
 		selenium.ErrUnknown(errors.New("browser did not become ready in 200ms (seleniferous: ContainerCreating)")))
@@ -2259,7 +2757,7 @@ func TestCreateSessionRetriesRefusedSidecar(t *testing.T) {
 	req.Host = "example.com"
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	if rw.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rw.Code)
@@ -2294,7 +2792,7 @@ func TestCreateSessionDoesNotRetryOtherProxyErrors(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	if rw.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", rw.Code)
@@ -2327,7 +2825,7 @@ func TestCreateSessionGivesUpAtDeadline(t *testing.T) {
 	rw := httptest.NewRecorder()
 
 	start := time.Now()
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 	elapsed := time.Since(start)
 
 	if rw.Code != http.StatusInternalServerError {
@@ -2376,7 +2874,7 @@ func TestMcpHandlerInitRetriesRefusedSidecar(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", bytes.NewBufferString(payload))
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if rw.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rw.Code)
@@ -2404,7 +2902,7 @@ func TestMcpHandlerInitBodyReadError(t *testing.T) {
 	req.Body = errorReader{}
 	rw := httptest.NewRecorder()
 
-	svc.McpHandler(rw, req)
+	svc.MCPServe(rw, req)
 
 	if rw.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", rw.Code)
@@ -2515,7 +3013,7 @@ func TestCreateSessionFailedEventSurfacesMessage(t *testing.T) {
 	svc := NewService(fc, ServiceConfig{Namespace: "ns", BrowserStartTimeout: time.Second})
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil))
+	svc.WebDriverNewSession(rw, newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(validCapsBody()), nil))
 
 	if !strings.Contains(rw.Body.String(), "ImagePullBackOff") {
 		t.Fatalf("expected the controller message in the response, got %s", rw.Body.String())
@@ -2540,7 +3038,7 @@ func TestCreateBrowserClientCancelIsNotReportedAsTimeout(t *testing.T) {
 		cancel()
 	}()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	if strings.Contains(rw.Body.String(), "did not become ready") {
 		t.Fatalf("client cancellation must not be reported as a timeout, got %s", rw.Body.String())
@@ -2630,7 +3128,7 @@ func TestCreateSessionSessionTypeWinsOverUserAnnotation(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBuffer(raw), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	if rw.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rw.Code)
@@ -2677,7 +3175,7 @@ func TestCreateSessionPromotesAnnotationsToBrowserCR(t *testing.T) {
 	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", bytes.NewBufferString(capsBodyWithAnnotations()), nil)
 	rw := httptest.NewRecorder()
 
-	svc.CreateSession(rw, req)
+	svc.WebDriverNewSession(rw, req)
 
 	if rw.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rw.Code)
@@ -2716,7 +3214,7 @@ func TestPlaywrightPromotesAnnotationsToBrowserCR(t *testing.T) {
 	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
 	rw := httptest.NewRecorder()
 
-	svc.Playwright(rw, req)
+	svc.PlaywrightConnect(rw, req)
 
 	if fc.created == nil {
 		t.Fatal("expected browser to be created")

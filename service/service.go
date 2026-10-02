@@ -43,6 +43,9 @@ const (
 	defaultRetryInitialDelay = 100 * time.Millisecond
 	defaultRetryMaxDelay     = 500 * time.Millisecond
 
+	devtoolsPathPrefix    = "/devtools"
+	devtoolsSessionPrefix = "/devtools/session"
+
 	sidecarContainerName = "seleniferous"
 )
 
@@ -76,6 +79,7 @@ const (
 	sessionTypeSelenium   sessionType = "selenium"
 	sessionTypePlaywright sessionType = "playwright"
 	sessionTypeMCP        sessionType = "mcp"
+	sessionTypeDevtools   sessionType = "devtools"
 )
 
 func NewService(client browserclient.Client, config ServiceConfig) *Service {
@@ -89,7 +93,7 @@ func (s *Service) sidecarHost(ip string) string {
 	return net.JoinHostPort(ip, s.config.SidecarPort)
 }
 
-func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
+func (s *Service) WebDriverNewSession(rw http.ResponseWriter, req *http.Request) {
 	log := logctx.FromContext(req.Context())
 
 	if req.Body == nil {
@@ -172,7 +176,7 @@ func (s *Service) CreateSession(rw http.ResponseWriter, req *http.Request) {
 	rp.ServeHTTP(rw, req)
 }
 
-func (s *Service) ProxySession(rw http.ResponseWriter, req *http.Request) {
+func (s *Service) WebDriverProxy(rw http.ResponseWriter, req *http.Request) {
 	log := logctx.FromContext(req.Context())
 	sessionId := chi.URLParam(req, "sessionId")
 	if sessionId == "" {
@@ -236,7 +240,7 @@ func (s *Service) ProxySession(rw http.ResponseWriter, req *http.Request) {
 	rp.ServeHTTP(rw, req)
 }
 
-func (s *Service) SessionStatus(rw http.ResponseWriter, req *http.Request) {
+func (s *Service) WebDriverStatus(rw http.ResponseWriter, req *http.Request) {
 	log := logctx.FromContext(req.Context())
 
 	var status selenium.Status
@@ -255,7 +259,7 @@ func (s *Service) SessionStatus(rw http.ResponseWriter, req *http.Request) {
 	rw.Write(raw)
 }
 
-func (s *Service) Playwright(rw http.ResponseWriter, req *http.Request) {
+func (s *Service) PlaywrightConnect(rw http.ResponseWriter, req *http.Request) {
 	log := logctx.FromContext(req.Context())
 
 	name := chi.URLParam(req, "name")
@@ -283,15 +287,13 @@ func (s *Service) Playwright(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	query := dropSelenosisOptions(req.URL.Query())
-	query.Set("ipuuid", startedBrowser.SessionUUID.String())
-	rawQuery := query.Encode()
+	rawQuery := browserQuery(req.URL)
 
 	resolver := func(r *http.Request) (*url.URL, error) {
 		return &url.URL{
 			Scheme:   "ws",
 			Host:     net.JoinHostPort(startedBrowser.PodIP, s.config.SidecarPort),
-			Path:     "/playwright",
+			Path:     path.Join("/playwright", startedBrowser.SessionUUID.String()),
 			RawQuery: rawQuery,
 		}, nil
 	}
@@ -310,6 +312,134 @@ func (s *Service) Playwright(rw http.ResponseWriter, req *http.Request) {
 		}),
 	)
 	rp.ServeHTTP(rw, req)
+}
+
+func (s *Service) DevToolsConnect(rw http.ResponseWriter, req *http.Request) {
+	log := logctx.FromContext(req.Context())
+
+	name := chi.URLParam(req, "name")
+	version := chi.URLParam(req, "version")
+	if name == "" || version == "" {
+		log.Error().Str("name", name).Str("version", version).Msg("missing required url params: name or version")
+		http.Error(rw, fmt.Sprintf("missing required url param: name=%s version=%s", name, version), http.StatusNotFound)
+		return
+	}
+
+	opts, err := parseSelenosisOptions(req.URL.Query(), defaultParseLimits())
+	if err != nil {
+		log.Err(err).Msg("failed to parse selenosis options from query parameters")
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	startedBrowser, ok := s.createBrowser(rw, req, sessionConfig{
+		SessionType:      sessionTypeDevtools,
+		BrowserName:      name,
+		BrowserVersion:   version,
+		SelenosisOptions: opts,
+	})
+	if !ok {
+		return
+	}
+
+	log.Info().
+		Dict("Browser", zerolog.Dict().
+			Str("ip", startedBrowser.PodIP).
+			Str("hostname", startedBrowser.Hostname)).
+		Msg("proxying devtools request")
+
+	s.proxyDevtools(rw, req, devtoolsPathPrefix, startedBrowser.PodIP, startedBrowser.SessionUUID.String(),
+		chi.URLParam(req, "*"), browserQuery(req.URL), proxy.DialRetry{
+			Timeout:     s.config.SessionCreateTimeout,
+			Interval:    defaultRetryInitialDelay,
+			MaxInterval: defaultRetryMaxDelay,
+		})
+}
+
+func (s *Service) DevToolsAttach(rw http.ResponseWriter, req *http.Request) {
+	log := logctx.FromContext(req.Context())
+	sessionId := chi.URLParam(req, "sessionId")
+	if sessionId == "" {
+		log.Error().Msg("missing required url param: sessionId")
+		http.Error(rw, "missing required url param: sessionId", http.StatusBadRequest)
+		return
+	}
+
+	podIp, err := parseSessionID(sessionId)
+	if err != nil {
+		log.Error().Str("sessionId", sessionId).Msg("invalid url param: sessionId")
+		http.Error(rw, "invalid url param: sessionId, expected /devtools/session/{sessionId}/...", http.StatusBadRequest)
+		return
+	}
+
+	log = log.With().
+		Dict("Browser", zerolog.Dict().
+			Str("ip", podIp.String())).
+		Str("sessionId", sessionId).
+		Logger()
+
+	s.proxyDevtools(rw, req.WithContext(logctx.IntoContext(req.Context(), log)), devtoolsSessionPrefix, podIp.String(), sessionId,
+		chi.URLParam(req, "*"), req.URL.RawQuery, proxy.DialRetry{})
+}
+
+func (s *Service) proxyDevtools(rw http.ResponseWriter, req *http.Request, prefix, podIP, sessionId, tail, rawQuery string, retry proxy.DialRetry) {
+	log := logctx.FromContext(req.Context())
+
+	sessionPath := path.Join(prefix, sessionId)
+	targetPath := path.Join(sessionPath, tail)
+	if targetPath != sessionPath && !strings.HasPrefix(targetPath, sessionPath+"/") {
+		log.Error().Str("path", req.URL.Path).Msg("devtools path escapes the session prefix")
+		http.Error(rw, "invalid devtools path", http.StatusBadRequest)
+		return
+	}
+
+	target := &url.URL{
+		Host:     s.sidecarHost(podIP),
+		Path:     targetPath,
+		RawQuery: rawQuery,
+	}
+
+	if proxy.IsWebSocketRequest(req) {
+		target.Scheme = "ws"
+		resolver := func(r *http.Request) (*url.URL, error) {
+			log.Info().Str("ws_url", target.String()).Msg("resolved websocket target url")
+			return target, nil
+		}
+
+		log.Info().Msg("proxying devtools websocket request")
+
+		rp := proxy.NewWebSocketReverseProxy(resolver, proxy.WithWSDialRetry(retry))
+		rp.ServeHTTP(rw, req)
+		return
+	}
+
+	target.Scheme = "http"
+	reqModifier := func(r *http.Request) {
+		r.Header.Set("X-Selenosis-External-URL", externalBaseURL(req).String())
+		r.URL = target
+		r.Method = req.Method
+		r.Host = target.Host
+
+		log.Info().Msg("devtools http request modified")
+	}
+
+	log.Info().Msg("proxying devtools http request")
+
+	rp := proxy.NewHTTPReverseProxy(
+		proxy.WithHTTPDialRetry(retry),
+		proxy.WithRequestModifier(reqModifier),
+		proxy.WithErrorHandler(routeHTTPProxyErrorHandler(log, sessionId)),
+	)
+	rp.ServeHTTP(rw, req)
+}
+
+func browserQuery(u *url.URL) string {
+	query := u.Query()
+	size := len(query)
+	if len(dropSelenosisOptions(query)) == size {
+		return u.RawQuery
+	}
+	return query.Encode()
 }
 
 func (s *Service) RouteHTTP(rw http.ResponseWriter, req *http.Request) {
@@ -359,7 +489,7 @@ func (s *Service) RouteHTTP(rw http.ResponseWriter, req *http.Request) {
 	rp.ServeHTTP(rw, req)
 }
 
-func (s *Service) McpHandler(rw http.ResponseWriter, req *http.Request) {
+func (s *Service) MCPServe(rw http.ResponseWriter, req *http.Request) {
 	log := logctx.FromContext(req.Context())
 
 	sessionId := req.Header.Get("Mcp-Session-Id")
