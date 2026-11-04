@@ -217,6 +217,7 @@ selenosis is configured via environment variables:
 | `NAMESPACE` | `selenosis` | Namespace where `Browser` resources are created. |
 | `BROWSER_STARTUP_TIMEOUT` | `3m` | Maximum time for a `Browser` resource to become ready. |
 | `BASIC_AUTH_FILE` | | Path to a JSON file with the list of Basic Auth users. |
+| `LOG_LEVEL` | `info` | Log level (`trace`, `debug`, `info`, `warn`, `error`). Per-request proxy lines are logged at `debug`. |
 
 Basic Authentication is optional and off by default; point `BASIC_AUTH_FILE` at a JSON
 list of users (delivered via a Kubernetes Secret) to require credentials on every

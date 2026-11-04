@@ -47,7 +47,7 @@ func requestContextMiddleware(logger zerolog.Logger, hostname string) func(http.
 func main() {
 
 	zerolog.TimeFieldFormat = time.RFC3339
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	zerolog.SetGlobalLevel(logLevel())
 	log := zerolog.New(os.Stdout).With().Timestamp().Logger()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -161,6 +161,14 @@ func basicAuthMiddleware(authStore *auth.AuthStore, log zerolog.Logger) func(htt
 			next.ServeHTTP(rw, req)
 		})
 	}
+}
+
+func logLevel() zerolog.Level {
+	level, err := zerolog.ParseLevel(env.GetEnvOrDefault("LOG_LEVEL", "info"))
+	if err != nil || level == zerolog.NoLevel {
+		return zerolog.InfoLevel
+	}
+	return level
 }
 
 func loadConfig() (service.ServiceConfig, *auth.AuthStore, string, string, error) {
