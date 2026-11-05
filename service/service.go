@@ -198,7 +198,7 @@ func (s *Service) WebDriverProxy(rw http.ResponseWriter, req *http.Request) {
 		Str("sessionId", sessionId).
 		Logger()
 
-	log.Info().
+	log.Debug().
 		Msg("proxying session request")
 
 	host := s.sidecarHost(podIp.String())
@@ -230,7 +230,7 @@ func (s *Service) WebDriverProxy(rw http.ResponseWriter, req *http.Request) {
 		}
 		r.Host = req.Host
 
-		log.Info().Msg("session proxy request modified")
+		log.Debug().Msg("session proxy request modified")
 	}
 
 	rp := proxy.NewHTTPReverseProxy(
