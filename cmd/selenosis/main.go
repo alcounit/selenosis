@@ -20,37 +20,14 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func requestContextMiddleware(logger zerolog.Logger, hostname string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		fn := func(rw http.ResponseWriter, req *http.Request) {
-
-			reqId := uuid.NewString()
-
-			l := logger.With().
-				Str("method", req.Method).
-				Str("path", req.URL.Path).
-				Str("reqId", reqId).
-				Str("hostname", hostname).
-				Logger()
-
-			req.Header.Add("X-Selenosis-Request-ID", reqId)
-			req.Header.Set("X-Selenosis-Hostname", hostname)
-			ctx := req.Context()
-			ctx = logctx.IntoContext(ctx, l)
-
-			next.ServeHTTP(rw, req.WithContext(ctx))
-		}
-		return http.HandlerFunc(fn)
-	}
-}
-
 func main() {
 
 	zerolog.TimeFieldFormat = time.RFC3339
 	zerolog.SetGlobalLevel(logLevel())
 	log := zerolog.New(os.Stdout).With().Timestamp().Logger()
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx := logctx.IntoContext(context.Background(), log)
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	cfg, authStore, listenAddr, apiURL, err := loadConfig()
@@ -169,6 +146,30 @@ func logLevel() zerolog.Level {
 		return zerolog.InfoLevel
 	}
 	return level
+}
+
+func requestContextMiddleware(logger zerolog.Logger, hostname string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		fn := func(rw http.ResponseWriter, req *http.Request) {
+
+			reqId := uuid.NewString()
+
+			l := logger.With().
+				Str("method", req.Method).
+				Str("path", req.URL.Path).
+				Str("reqId", reqId).
+				Str("hostname", hostname).
+				Logger()
+
+			req.Header.Set("X-Selenosis-Request-ID", reqId)
+			req.Header.Set("X-Selenosis-Hostname", hostname)
+			ctx := req.Context()
+			ctx = logctx.IntoContext(ctx, l)
+
+			next.ServeHTTP(rw, req.WithContext(ctx))
+		}
+		return http.HandlerFunc(fn)
+	}
 }
 
 func loadConfig() (service.ServiceConfig, *auth.AuthStore, string, string, error) {
