@@ -2323,9 +2323,11 @@ type fakeClient struct {
 	stream       browserclient.EventStream
 	streamErr    error
 	eventsOpts   []event.EventsOption
+	createCalls  int
 }
 
 func (f *fakeClient) Create(ctx context.Context, namespace string, browser *browserv1.Browser) (*browserv1.Browser, error) {
+	f.createCalls++
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
@@ -2910,6 +2912,57 @@ func TestMcpHandlerInitBodyReadError(t *testing.T) {
 	if !strings.Contains(rw.Body.String(), "failed to read body") {
 		t.Fatalf("unexpected body: %q", rw.Body.String())
 	}
+	if fc.createCalls != 0 {
+		t.Fatalf("expected no browser to be created, got %d create calls", fc.createCalls)
+	}
+}
+
+func TestMcpHandlerInitBodyTooLarge(t *testing.T) {
+	fc := &fakeClient{stream: runningStream("127.0.0.1")}
+	svc := NewService(fc, ServiceConfig{
+		Namespace:           "ns",
+		SidecarPort:         "4444",
+		BrowserStartTimeout: time.Second,
+	})
+	body := bytes.NewReader(bytes.Repeat([]byte("a"), maxRequestBodySize+1))
+	req := httptest.NewRequest(http.MethodPost, "/mcp?browser=chromium&version=123", body)
+	rw := httptest.NewRecorder()
+
+	svc.MCPServe(rw, req)
+
+	assertMcpError(t, rw, http.StatusBadRequest, jsonrpc.InvalidRequest)
+	if !strings.Contains(rw.Body.String(), ErrRequestBodyTooLarge.Error()) {
+		t.Fatalf("unexpected body: %q", rw.Body.String())
+	}
+	if fc.createCalls != 0 {
+		t.Fatalf("expected no browser to be created, got %d create calls", fc.createCalls)
+	}
+}
+
+func TestCreateSessionBodyTooLarge(t *testing.T) {
+	fc := &fakeClient{}
+	svc := NewService(fc, ServiceConfig{})
+	body := bytes.NewReader(bytes.Repeat([]byte("a"), maxRequestBodySize+1))
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", body, nil)
+	rw := httptest.NewRecorder()
+
+	svc.WebDriverNewSession(rw, req)
+
+	verifyResponseError(t, rw, http.StatusBadRequest, selenium.ErrInvalidArgument(ErrRequestBodyTooLarge))
+	if fc.createCalls != 0 {
+		t.Fatalf("expected no browser to be created, got %d create calls", fc.createCalls)
+	}
+}
+
+func TestCreateSessionBodyAtLimit(t *testing.T) {
+	svc := NewService(&fakeClient{}, ServiceConfig{})
+	body := bytes.NewReader(bytes.Repeat([]byte("a"), maxRequestBodySize))
+	req := newRequestWithParams(http.MethodPost, "/wd/hub/session", body, nil)
+	rw := httptest.NewRecorder()
+
+	svc.WebDriverNewSession(rw, req)
+
+	verifyResponseError(t, rw, http.StatusBadRequest, selenium.ErrInvalidArgument(ErrDecodeRequestBody))
 }
 
 func TestBrowserFailure(t *testing.T) {
