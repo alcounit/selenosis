@@ -2,7 +2,9 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -144,24 +146,17 @@ func pipeWebSocket(a, b *websocket.Conn, onMessage, onClose func()) {
 
 	var once sync.Once
 
-	shutdown := func() {
+	shutdown := func(code int, text string) {
 		once.Do(func() {
 			if onClose != nil {
 				onClose()
 			}
 
+			msg := websocket.FormatCloseMessage(code, text)
 			deadline := time.Now().Add(1 * time.Second)
 
-			_ = a.WriteControl(
-				websocket.CloseMessage,
-				websocket.FormatCloseMessage(websocket.CloseNormalClosure, "closing"),
-				deadline,
-			)
-			_ = b.WriteControl(
-				websocket.CloseMessage,
-				websocket.FormatCloseMessage(websocket.CloseNormalClosure, "closing"),
-				deadline,
-			)
+			_ = a.WriteControl(websocket.CloseMessage, msg, deadline)
+			_ = b.WriteControl(websocket.CloseMessage, msg, deadline)
 			_ = a.Close()
 			_ = b.Close()
 		})
@@ -171,9 +166,9 @@ func pipeWebSocket(a, b *websocket.Conn, onMessage, onClose func()) {
 		defer wg.Done()
 
 		for {
-			msgType, data, err := src.ReadMessage()
+			msgType, r, err := src.NextReader()
 			if err != nil {
-				shutdown()
+				shutdown(closeStatus(err))
 				return
 			}
 
@@ -181,8 +176,8 @@ func pipeWebSocket(a, b *websocket.Conn, onMessage, onClose func()) {
 				onMessage()
 			}
 
-			if err := dst.WriteMessage(msgType, data); err != nil {
-				shutdown()
+			if err := copyMessage(dst, msgType, r); err != nil {
+				shutdown(closeStatus(err))
 				return
 			}
 		}
@@ -192,6 +187,25 @@ func pipeWebSocket(a, b *websocket.Conn, onMessage, onClose func()) {
 	go pump(b, a)
 
 	wg.Wait()
+}
+
+func copyMessage(dst *websocket.Conn, msgType int, r io.Reader) error {
+	w, err := dst.NextWriter(msgType)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(w, r); err != nil {
+		return err
+	}
+	return w.Close()
+}
+
+func closeStatus(err error) (int, string) {
+	var ce *websocket.CloseError
+	if errors.As(err, &ce) && ce.Code != websocket.CloseAbnormalClosure && ce.Code != websocket.CloseTLSHandshake {
+		return ce.Code, ce.Text
+	}
+	return websocket.CloseInternalServerErr, ""
 }
 
 func cloneHeaders(r *http.Request) http.Header {
