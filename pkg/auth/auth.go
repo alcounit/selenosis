@@ -12,9 +12,17 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-type User struct {
+type credentials struct {
 	User string `json:"user"`
 	Pass string `json:"pass"`
+}
+
+func (c credentials) Username() string {
+	return c.User
+}
+
+func (c credentials) Password() string {
+	return c.Pass
 }
 
 type AuthStore struct {
@@ -36,17 +44,17 @@ func reload(s *AuthStore) error {
 		return fmt.Errorf("read auth file: %w", err)
 	}
 
-	var list []User
+	var list []credentials
 	if err := json.Unmarshal(data, &list); err != nil {
 		return fmt.Errorf("parse auth file: %w", err)
 	}
 
 	users := make(map[string]string, len(list))
 	for _, u := range list {
-		if u.User == "" {
+		if u.Username() == "" {
 			continue
 		}
-		users[u.User] = u.Pass
+		users[u.Username()] = u.Password()
 	}
 
 	if len(users) == 0 {

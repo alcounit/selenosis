@@ -31,6 +31,7 @@ import (
 var (
 	ErrMissingCapabilities = errors.New("missing request capabilities")
 	ErrReadRequestBody     = errors.New("failed to read request body")
+	ErrRequestBodyTooLarge = fmt.Errorf("request body exceeds %d MB", maxRequestBodySize>>20)
 	ErrDecodeRequestBody   = errors.New("failed to decode request body")
 	ErrCapabilityMatch     = errors.New("cannot match request capabilities")
 	ErrInternal            = errors.New("internal server error")
@@ -103,9 +104,13 @@ func (s *Service) WebDriverNewSession(rw http.ResponseWriter, req *http.Request)
 	}
 	defer req.Body.Close()
 
-	body, err := io.ReadAll(io.LimitReader(req.Body, maxRequestBodySize))
+	body, err := readBody(rw, req)
 	if err != nil {
 		log.Err(err).Msg("failed to read request body")
+		if errors.Is(err, ErrRequestBodyTooLarge) {
+			writeErrorResponse(rw, http.StatusBadRequest, selenium.ErrInvalidArgument(ErrRequestBodyTooLarge))
+			return
+		}
 		writeErrorResponse(rw, http.StatusBadRequest, selenium.ErrInvalidArgument(ErrReadRequestBody))
 		return
 	}
@@ -503,6 +508,21 @@ func (s *Service) MCPServe(rw http.ResponseWriter, req *http.Request) {
 			return
 		}
 
+		var body []byte
+		if req.Body != nil {
+			defer req.Body.Close()
+			var err error
+			if body, err = readBody(rw, req); err != nil {
+				log.Err(err).Msg("failed to read request body")
+				if errors.Is(err, ErrRequestBodyTooLarge) {
+					jsonrpc.WriteError(rw, http.StatusBadRequest, jsonrpc.InvalidRequest, "Bad Request: "+err.Error())
+					return
+				}
+				jsonrpc.WriteError(rw, http.StatusBadRequest, jsonrpc.InvalidParams, "Bad Request: failed to read body")
+				return
+			}
+		}
+
 		selenosisOpts, err := parseSelenosisOptions(req.URL.Query(), defaultParseLimits())
 		if err != nil {
 			log.Err(err).Msg("failed to parse selenosis options from query parameters")
@@ -527,16 +547,6 @@ func (s *Service) MCPServe(rw http.ResponseWriter, req *http.Request) {
 				Str("ip", startedBrowser.PodIP).
 				Str("hostname", startedBrowser.Hostname)).
 			Msg("proxying mcp initialize request")
-
-		var body []byte
-		if req.Body != nil {
-			defer req.Body.Close()
-			if body, err = io.ReadAll(io.LimitReader(req.Body, maxRequestBodySize)); err != nil {
-				log.Err(err).Msg("failed to read request body")
-				jsonrpc.WriteError(rw, http.StatusBadRequest, jsonrpc.InvalidParams, "Bad Request: failed to read body")
-				return
-			}
-		}
 
 		rawQuery := dropMcpOptions(req.URL.Query())
 
@@ -767,6 +777,18 @@ func (s *Service) createBrowserAndWait(ctx context.Context, logger zerolog.Logge
 			return "", &browserError{kind: browserContextDone}
 		}
 	}
+}
+
+func readBody(rw http.ResponseWriter, req *http.Request) ([]byte, error) {
+	body, err := io.ReadAll(http.MaxBytesReader(rw, req.Body, maxRequestBodySize))
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return nil, ErrRequestBodyTooLarge
+		}
+		return nil, err
+	}
+	return body, nil
 }
 
 func parseSessionID(sessionId string) (net.IP, error) {

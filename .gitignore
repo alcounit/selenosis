@@ -3,3 +3,5 @@ Dockerfile.local
 Makefile.local
 out/
 examples/
+e2e/**/node_modules/
+e2e/**/screenshot.png
