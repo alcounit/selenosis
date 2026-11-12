@@ -18,7 +18,10 @@ var (
 	platformName        = "platformName"
 	platform            = "platform"
 
-	selenosisOptions = "selenosis:options"
+	selenosisOptions   = "selenosis:options"
+	selenoidOptions    = "selenoid:options"
+	testNameKey        = "name"
+	testNameAnnotation = "selenosis.io/testname"
 )
 
 type Capabilities map[string]any
@@ -88,6 +91,12 @@ func (c Capabilities) ProcessCapabilities() (Capabilities, error) {
 		valid := len(result) > 0
 		if opts, ok := merged[selenosisOptions].(map[string]any); ok {
 			result[selenosisOptions] = opts
+		}
+
+		if so, ok := merged[selenoidOptions].(map[string]any); ok {
+			if name, ok := so[testNameKey].(string); ok && name != "" {
+				result = withTestName(result, name)
+			}
 		}
 
 		if valid {
@@ -233,4 +242,25 @@ func deepCopyValue(v any) any {
 	default:
 		return val
 	}
+}
+
+func withTestName(c Capabilities, name string) Capabilities {
+	opts, _ := c[selenosisOptions].(map[string]any)
+	if opts == nil {
+		opts = map[string]any{}
+	}
+
+	annotations, _ := opts["annotations"].(map[string]any)
+	if annotations == nil {
+		annotations = map[string]any{}
+	}
+
+	if _, exists := annotations[testNameAnnotation]; !exists {
+		annotations[testNameAnnotation] = name
+	}
+
+	opts["annotations"] = annotations
+	c[selenosisOptions] = opts
+
+	return c
 }

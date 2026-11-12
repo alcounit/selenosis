@@ -58,6 +58,17 @@ func parseSelenosisOptions(q url.Values, limits parseLimits) (map[string]any, er
 			return nil, fmt.Errorf("value too long for key %q (%d)", key, len(val))
 		}
 
+		if key == "name" {
+			if annotations == nil {
+				annotations = make(map[string]string)
+			}
+			annotations["selenosis.io/testname"] = val
+			if limits.MaxAnnotations > 0 && len(annotations) > limits.MaxAnnotations {
+				return nil, fmt.Errorf("too many annotations (>%d)", limits.MaxAnnotations)
+			}
+			continue
+		}
+
 		parts := strings.Split(key, ".")
 		if len(parts) < 2 {
 			continue

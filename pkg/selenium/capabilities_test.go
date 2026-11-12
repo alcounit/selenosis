@@ -233,3 +233,55 @@ func TestDeepCopyPrimitivesAndNested(t *testing.T) {
 		t.Errorf("expected different map pointers")
 	}
 }
+
+func TestProcessCapabilitiesSelenoidName(t *testing.T) {
+	c := Capabilities{
+		capabilities: map[string]any{
+			alwaysMatch: map[string]any{
+				browserName:    "chrome",
+				browserVersion: "120",
+				selenoidOptions: map[string]any{
+					"name": "mpqa - test_example[chrome]",
+				},
+			},
+		},
+	}
+
+	result, err := c.ProcessCapabilities()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	annotations, ok := result.GetSelenosisOptions()["annotations"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected annotations in selenosis options, got %#v", result.GetSelenosisOptions())
+	}
+	if got := annotations[testNameAnnotation]; got != "mpqa - test_example[chrome]" {
+		t.Fatalf("unexpected test name annotation: %#v", got)
+	}
+}
+
+func TestProcessCapabilitiesSelenoidNameKeepsExplicitAnnotation(t *testing.T) {
+	c := Capabilities{
+		capabilities: map[string]any{
+			alwaysMatch: map[string]any{
+				browserName:     "chrome",
+				browserVersion:  "120",
+				selenoidOptions: map[string]any{"name": "from selenoid"},
+				selenosisOptions: map[string]any{
+					"annotations": map[string]any{testNameAnnotation: "explicit"},
+				},
+			},
+		},
+	}
+
+	result, err := c.ProcessCapabilities()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	annotations := result.GetSelenosisOptions()["annotations"].(map[string]any)
+	if got := annotations[testNameAnnotation]; got != "explicit" {
+		t.Fatalf("explicit annotation must win, got %#v", got)
+	}
+}
